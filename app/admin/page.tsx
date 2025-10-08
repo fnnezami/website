@@ -138,6 +138,19 @@ export default async function AdminHome() {
         </div>
       </div>
 
+      <Link
+          href="/admin/modules"
+          className="rounded-2xl border bg-white p-5 hover:shadow-md transition-shadow block"
+        >
+          <div className="text-lg font-medium">Modules</div>
+          <p className="text-sm text-gray-600 mt-1">
+            Install, enable/disable, and configure site modules.
+          </p>
+          <span className="inline-block mt-3 text-sm underline underline-offset-4">
+            Open Modules
+          </span>
+      </Link>
+
       <section className="rounded-2xl border bg-white p-5">
         <h2 className="text-lg font-medium">Notes</h2>
         <ul className="list-disc pl-5 text-sm mt-2 space-y-1 text-gray-700">

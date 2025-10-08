@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import ProfileHeader from "@/components/ProfileHeader";
 import Navbar from "@/components/Navbar";
 import { fetchNormalizedResume } from "@/lib/gist";
-
+import FloatingModulesHost from "@/components/FloatingModulesHost";
 export const metadata: Metadata = {
   title: "Farbod Nosrat Nezami",
   description: "Resume, publications, and projects",
@@ -18,7 +18,6 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Pull a few basics for header; safe-guard if gist is down
   let basics: any = {};
   try {
     const data = await fetchNormalizedResume();
@@ -27,22 +26,14 @@ export default async function RootLayout({
     basics = {};
   }
 
-  // EXACT: use basics.summary only (trimmed). No placeholders.
-  const aboutText =
-    typeof basics?.summary === "string" ? basics.summary.trim() : "";
-
   const links: { label: string; href: string }[] = [
     ...(basics?.url ? [{ label: "Website", href: String(basics.url) }] : []),
-    ...(
-      Array.isArray(basics?.profiles)
-        ? basics.profiles
-            .filter((p: any) => p && p.url)
-            .map((p: any) => ({
-              label: String(p.network || "Profile"),
-              href: String(p.url),
-            }))
-        : []
-    ),
+    ...(Array.isArray(basics?.profiles) ? basics.profiles : [])
+      .filter((p: any) => p && p.url)
+      .map((p: any) => ({
+        label: String(p.network || "Profile"),
+        href: String(p.url),
+      })),
   ];
 
   return (
@@ -51,16 +42,15 @@ export default async function RootLayout({
         <ProfileHeader
           name={String(basics?.name || "Your Name")}
           title={String(basics?.label || "")}
-          about={aboutText}
+          about={typeof basics?.summary === "string" ? basics.summary : ""}     
+          summary={typeof basics?.summary === "string" ? basics.summary : ""}   
           photoUrl={typeof basics?.image === "string" ? basics.image : undefined}
           links={links}
         />
-
-        {/* Offset variable helps keep Navbar stuck below header’s height */}
         <div style={{ ["--nav-offset" as any]: "8.25rem" }}>
           <Navbar />
         </div>
-
+        <FloatingModulesHost />
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       </body>
     </html>

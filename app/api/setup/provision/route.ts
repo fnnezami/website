@@ -108,7 +108,90 @@ export async function POST(req: Request) {
         using (true);
       `, [], "create pd read policy");
 
-      // No insert/update/delete policies => denied by default for clients (good)
+      // ======== MODULES FOUNDATION (NEW) ========
+
+      // Helper function: is_admin() based on settings.admin_allowlist + auth.jwt().email
+      await exec(pg, `
+        create or replace function public.is_admin()
+        returns boolean
+        language plpgsql
+        stable
+        as $$
+        declare
+          allowlist text[];
+          me text;
+        begin
+          select admin_allowlist into allowlist from public.settings where id = 1;
+          select lower(auth.jwt() ->> 'email') into me;
+          if me is null then
+            return false;
+          end if;
+          return array_position(allowlist, me) is not null;
+        end;
+        $$;
+      `, [], "create is_admin()");
+
+      // Modules table
+      await exec(pg, `
+        create table if not exists public.modules (
+          id          text primary key,                         -- e.g. "assistant", "contact", "theme-editor"
+          kind        text not null check (kind in ('page','block','floating','api')),
+          slug        text unique,                              -- only for kind='page' (route /m/[slug])
+          title       text,
+          enabled     boolean not null default false,
+          config      jsonb not null default '{}'::jsonb,       -- module-owned config
+          created_at  timestamptz not null default now(),
+          updated_at  timestamptz not null default now()
+        );
+      `, [], "create modules");
+
+      await exec(pg, `create index if not exists modules_kind_enabled_idx on public.modules(kind, enabled);`, [], "idx kind+enabled");
+      await exec(pg, `create index if not exists modules_slug_idx on public.modules(slug);`, [], "idx slug");
+
+      await exec(pg, `alter table public.modules enable row level security;`, [], "rls modules");
+
+      // RLS: public can read only enabled modules
+      await exec(pg, `drop policy if exists "modules read enabled" on public.modules;`, [], "drop modules read policy");
+      await exec(pg, `
+        create policy "modules read enabled"
+        on public.modules
+        for select
+        to anon, authenticated
+        using (enabled = true);
+      `, [], "create modules read policy");
+
+      // RLS: admins can write
+      await exec(pg, `drop policy if exists "modules write admins" on public.modules;`, [], "drop modules write policy");
+      await exec(pg, `
+        create policy "modules write admins"
+        on public.modules
+        for all
+        to authenticated
+        using (public.is_admin() = true)
+        with check (public.is_admin() = true);
+      `, [], "create modules write policy");
+
+      // touch_updated_at() + trigger for modules
+      await exec(pg, `
+        create or replace function public.touch_updated_at()
+        returns trigger
+        language plpgsql
+        as $$
+        begin
+          new.updated_at = now();
+          return new;
+        end;
+        $$;
+      `, [], "create touch_updated_at()");
+
+      await exec(pg, `drop trigger if exists trg_modules_updated on public.modules;`, [], "drop trg");
+      await exec(pg, `
+        create trigger trg_modules_updated
+        before update on public.modules
+        for each row execute procedure public.touch_updated_at();
+      `, [], "create trg");
+      // ======== END MODULES FOUNDATION ========
+
     } finally {
       await pg.end();
     }

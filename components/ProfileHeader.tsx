@@ -1,3 +1,4 @@
+// components/ProfileHeader.tsx
 "use client";
 
 import Image from "next/image";
@@ -5,7 +6,8 @@ import Image from "next/image";
 type Props = {
   name: string;
   title?: string;
-  about?: string; // ← we now always pass basics.summary here
+  about?: string;    // we'll pass basics.summary here
+  summary?: string;  // and also here (belt & suspenders)
   photoUrl?: string;
   links?: { label: string; href: string }[];
 };
@@ -18,10 +20,13 @@ export default function ProfileHeader({
   name,
   title,
   about,
+  summary,
   photoUrl,
   links = [],
 }: Props) {
-  // Dedupe by normalized URL; keep original order and the first occurrence
+  // use exactly what we’re given — no placeholder logic
+  const aboutText = (about ?? summary ?? "") as string;
+
   const dedupedLinks = (() => {
     const seen = new Set<string>();
     const out: { label: string; href: string; _key: string }[] = [];
@@ -81,12 +86,12 @@ export default function ProfileHeader({
             </div>
           </div>
 
-          {/* Always render the About box; show whatever string we got */}
+          {/* Always render About box with the string we got */}
           <div className="mt-4 md:mt-0 md:flex-1">
             <div className="rounded-2xl border p-4 md:p-5 bg-white">
               <h2 className="font-medium mb-2">About me</h2>
               <p className="text-sm leading-relaxed text-gray-700 whitespace-pre-line">
-                {about ?? ""} {/* if empty string, it will render empty space */}
+                {aboutText}
               </p>
             </div>
           </div>
