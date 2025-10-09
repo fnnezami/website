@@ -12,6 +12,18 @@ export const revalidate = 0;
 export default async function Home() {
   const resume = await fetchNormalizedResume();
 
+  // helper to pick badge color by level
+  const getLevelClass = (level?: string) => {
+    if (!level) return "bg-gray-100 text-gray-800";
+    const l = level.toLowerCase();
+    if (l.includes("expert")) return "bg-emerald-100 text-emerald-800";
+    if (l.includes("advanced")) return "bg-sky-100 text-sky-800";
+    if (l.includes("proficient")) return "bg-indigo-100 text-indigo-800";
+    if (l.includes("experienced")) return "bg-teal-100 text-teal-800";
+    if (l.includes("basic")) return "bg-amber-100 text-amber-800";
+    return "bg-gray-100 text-gray-800";
+  };
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border bg-white p-4">
@@ -64,16 +76,37 @@ export default async function Home() {
             <h3 className="font-semibold text-lg">Education</h3>
             {(resume?.education ?? []).map((e: any, i: number) => (
               <article key={i} className="rounded-xl border p-4 bg-white">
-                <div className="flex justify-between">
+                <div className="flex justify-between items-start">
                   <div className="font-medium">
-                    {e.studyType} {e.area} @ {e.institution}
+                    {e.studyType} @ {e.institution}
                   </div>
                   <div className="text-sm text-gray-600">
                     {e.startDate} – {e.endDate || "Present"}
                   </div>
                 </div>
+
+                {/* focus areas moved below as smaller badges */}
+                {e.area && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {Array.isArray(e.area)
+                      ? e.area.map((area: string, idx: number) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-1 text-xs text-gray-700"
+                          >
+                            {area}
+                          </span>
+                        ))
+                      : (
+                          <span className="px-2 py-1 text-xs text-gray-700">
+                            {e.area}
+                          </span>
+                        )}
+                  </div>
+                )}
+
                 {e.score && (
-                  <div className="text-sm text-gray-600">Score: {e.score}</div>
+                  <div className="text-sm text-gray-600 mt-2">Score: {e.score}</div>
                 )}
               </article>
             ))}
@@ -82,17 +115,42 @@ export default async function Home() {
           {/* Skills */}
           <section id="sec-skills" className="space-y-4 mt-8">
             <h3 className="font-semibold text-lg">Skills</h3>
-            <div className="flex flex-wrap gap-2">
-              {(resume?.skills ?? []).flatMap((s: any) => s.keywords || []).map(
-                (k: string, i: number) => (
-                  <span
-                    key={i}
-                    className="px-2 py-1 rounded-full border text-sm bg-neutral-50"
-                  >
-                    {k}
-                  </span>
-                )
-              )}
+
+            {/* responsive grid of skill cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(resume?.skills ?? []).map((s: any, i: number) => (
+                <article
+                  key={i}
+                  className="rounded-xl border p-4 bg-white shadow-sm"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="font-medium">{s.name}</div>
+                    <div>
+                      <span
+                        className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded ${getLevelClass(
+                          s.level
+                        )}`}
+                      >
+                        {s.level || "—"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* keywords as small chips */}
+                  {Array.isArray(s.keywords) && s.keywords.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {s.keywords.map((k: string, j: number) => (
+                        <span
+                          key={j}
+                          className="px-2 py-1 text-xs rounded-full border bg-neutral-50 text-gray-700"
+                        >
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              ))}
             </div>
           </section>
 
