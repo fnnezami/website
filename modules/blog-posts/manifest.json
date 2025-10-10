@@ -5,7 +5,7 @@
   "kind": "page",
   "adminPath": "/admin/modules/blog-posts",
   "config": {
-    "pagePath": "/blog"
+    "pagePath": "/modules/blog-posts/public"
   },
   "migrations": [
     "migrations/0001_create_blog_posts.sql"

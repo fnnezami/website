@@ -4,7 +4,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { supabaseBrowser } from "@/lib/supabase";
 
 const baseItems = [
   { label: "Resume", href: "/" },
@@ -13,7 +12,7 @@ const baseItems = [
 ];
 
 export default function Navbar(props: { pageModules?: Array<any> }) {
-  const pageModules = props.pageModules || [];
+  const pageModulesProp = props.pageModules || [];
   const pathname = usePathname();
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -33,23 +32,132 @@ export default function Navbar(props: { pageModules?: Array<any> }) {
       }
     })();
 
-    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_evt, session) => {
-      setAuthed(!!session);
-      setEmail(session?.user?.email ?? null);
-    });
+    // keep existing supabase auth subscription if available in runtime
+    const { data: sub } = (typeof supabaseBrowser !== "undefined" && supabaseBrowser?.auth)
+      ? supabaseBrowser.auth.onAuthStateChange((_evt: any, session: any) => {
+          setAuthed(!!session);
+          setEmail(session?.user?.email ?? null);
+        })
+      : { data: null };
 
     return () => { mounted = false; sub?.subscription?.unsubscribe?.(); };
   }, []);
 
-  // merge base items and module pages so they render identically
-  // NOTE: always link to the universal module route /m/<id> to keep modules self-contained
-  const mergedItems = [
+  const normalize = (p: string) => (p.startsWith("/") ? p : `/${p}`);
+
+  // merged nav items (base + page modules discovered from DB + fallback props)
+  const [mergedItems, setMergedItems] = useState(() => [
     ...baseItems,
-    ...pageModules.map((m) => ({
-      label: m.name || m.id,
-      href: `/m/${m.id}`,
-    })),
-  ];
+    // seed with any modules passed in via props (will be replaced by DB-driven list when loaded)
+    ...pageModulesProp.map((m) => {
+      const rawPagePath =
+        typeof (m?.config ?? m?.manifest?.config)?.pagePath === "string" &&
+        (m?.config ?? m?.manifest?.config).pagePath.trim() !== ""
+          ? (m?.config ?? m?.manifest?.config).pagePath
+          : null;
+      const href = rawPagePath ? normalize(rawPagePath) : `/m/${m.id || m.name}`;
+      return { label: m.name || m.id, href, moduleId: m.id, moduleName: m.name };
+    }),
+  ]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      // Try to read modules from the database first (kind = "page" and enabled = true).
+      // If DB read fails, fall back to the pageModulesProp provided by the caller.
+      let modulesFromDb: Array<any> = [];
+      try {
+        if (typeof supabaseBrowser !== "undefined" && supabaseBrowser.from) {
+          const q = await supabaseBrowser
+            .from("modules")
+            .select("id,name,config,manifest_path,enabled,kind")
+            .eq("kind", "page")
+            .eq("enabled", true);
+          if (!mounted) return;
+          if (q.error) throw q.error;
+          modulesFromDb = q.data ?? [];
+        }
+      } catch {
+        // DB query failed; we'll use pageModulesProp as a fallback below
+        modulesFromDb = [];
+      }
+
+      const sourceModules = modulesFromDb.length ? modulesFromDb : pageModulesProp;
+
+      const items: Array<any> = [];
+
+      for (const m of sourceModules) {
+        if (!mounted) break;
+
+        const id = m.id || m.moduleId || null;
+        const name = m.name || m.moduleName || null;
+
+        // try to read manifest from module folder(s)
+        // Try manifest from DB-provided manifest_path, then from the module public API,
+        // then fall back to a static /modules/<id>/manifest.json path.
+        const manifestPaths: string[] = [];
+        if (m?.manifest_path && typeof m.manifest_path === "string") manifestPaths.push(m.manifest_path);
+        // IMPORTANT: client cannot read repo fs directly — use the server API that can read FS.
+        if (id) manifestPaths.push(`/api/modules/public?module=${encodeURIComponent(id)}&file=manifest.json`);
+        if (name) manifestPaths.push(`/api/modules/public?module=${encodeURIComponent(name)}&file=manifest.json`);
+        // last-resort static URL (may 404 in dev if not served as static)
+        if (id) manifestPaths.push(`/modules/${id}/manifest.json`);
+        if (name) manifestPaths.push(`/modules/${name}/manifest.json`);
+
+        let manifest: any = null;
+        for (const p of manifestPaths) {
+          try {
+            const res = await fetch(p, { cache: "no-store" });
+            if (!mounted) break;
+            if (!res.ok) continue;
+            manifest = await res.json().catch(() => null);
+            if (manifest) break;
+          } catch {
+            // ignore and try next
+          }
+        }
+
+        // prefer pagePath from manifest (if found), then from module record config, else fallback to /m/<id>
+        let pagePath: string | null = null;
+        if (manifest?.config?.pagePath && typeof manifest.config.pagePath === "string" && manifest.config.pagePath.trim() !== "") {
+          pagePath = manifest.config.pagePath;
+        } else if (m?.config?.pagePath && typeof m.config.pagePath === "string" && m.config.pagePath.trim() !== "") {
+          pagePath = m.config.pagePath;
+        } else if (m?.manifest?.config?.pagePath && typeof m.manifest.config.pagePath === "string" && m.manifest.config.pagePath.trim() !== "") {
+          pagePath = m.manifest.config.pagePath;
+        }
+
+        // Resolve final href:
+        // If the manifest points at a module's on-disk folder (modules/... or .../public),
+        // map that to the universal module route /m/<id>. Otherwise, prefer the configured pagePath
+        // if it appears to be a real public URL.
+        let href: string;
+        if (pagePath) {
+          const candidate = normalize(pagePath);
+          const looksLikeModuleFsPath = /(^\/?modules\/)|\/public(\/|$)/i.test(candidate);
+          if (looksLikeModuleFsPath) {
+            href = id ? `/m/${id}` : name ? `/m/${name}` : "/";
+          } else {
+            // keep candidate when it appears to be a valid public route
+            href = candidate;
+          }
+        } else {
+          href = id ? `/m/${id}` : name ? `/m/${name}` : "/";
+        }
+
+        const label = (manifest?.name) || m.name || m.title || id || name || "Module";
+
+        items.push({ label, href, moduleId: id, moduleName: name });
+      }
+
+      if (mounted) {
+        setMergedItems(() => [...baseItems, ...items]);
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [pageModulesProp]);
 
   return (
     <nav className="sticky top-0 z-30 border-b bg-white">
@@ -96,7 +204,7 @@ export default function Navbar(props: { pageModules?: Array<any> }) {
               <>
                 {email && <span className="hidden sm:inline text-xs text-gray-600">{email}</span>}
                 <form action="/logout" method="post" className="inline">
-                  <button className="rounded-md bg-black text-white px-3 py-1.5 text-sm">Logout</button>
+                  <button type="submit" className="text-sm underline underline-offset-4">Logout</button>
                 </form>
               </>
             ) : (

@@ -1,4 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import fs from "fs/promises";
+import path from "path";
 
 export async function loadManifestsWithRegistry(
   srv?: any,
@@ -48,59 +50,26 @@ export async function getEnabledFloatingModules(srv?: any) {
   return all.filter((m: any) => m.kind === "floating" && m.enabled !== false);
 }
 
-export async function getPageModuleBySlug(slug: string, srv?: any) {
-  if (!slug) return null;
+export async function getPageModuleBySlug(slug: string) {
+  const modules = await listInstalledModules(); // existing loader
+  for (const m of modules) {
+    const rawPagePath = m.config?.pagePath || "";
+    const normalizedPagePath = rawPagePath.replace(/^\/+|\/+$/g, ""); // trim slashes
+    // candidate that used to be used (keep for backwards compatibility)
+    const candidate = normalizedPagePath || m.slug || m.id;
 
-  const normalize = (p?: any) => {
-    if (!p && p !== 0) return "";
-    const s = String(p);
-    return s.replace(/^\/+|\/+$/g, "");
-  };
+    if (candidate === slug) return m;
 
-  const param = normalize(slug);
+    // Minimal additions: also accept module id, module slug explicitly,
+    // and the basename of a configured pagePath (e.g. "/modules/blog-posts/public" -> "blog-posts")
+    if (m.id === slug) return m;
+    if (m.slug && m.slug === slug) return m;
 
-  // 1) try DB/registry first
-  const all = await loadManifestsWithRegistry(srv);
-  for (const m of all) {
-    const candidate = normalize(m.config?.pagePath || m.slug || m.id || "");
-    if (!candidate) continue;
-    // exact match or module path is a prefix for nested routes (e.g. candidate="blog" matches "blog" and "blog/..." )
-    if (param === candidate || param === "" && candidate === "" || param.startsWith(candidate + "/")) {
-      if (m.enabled !== false) return m;
+    if (normalizedPagePath) {
+      const base = path.posix.basename(normalizedPagePath);
+      if (base === slug) return m;
     }
   }
-
-  // 2) server-side disk fallback (keep for local modules on disk)
-  if (typeof window === "undefined") {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const fs = require("fs");
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const path = require("path");
-
-      const modulesDir = path.join(process.cwd(), "modules");
-      if (fs.existsSync(modulesDir)) {
-        for (const id of fs.readdirSync(modulesDir)) {
-          try {
-            const mpath = path.join(modulesDir, id, "manifest.json");
-            if (!fs.existsSync(mpath)) continue;
-            const raw = fs.readFileSync(mpath, "utf8");
-            const mf = JSON.parse(raw);
-            const candidate = normalize(mf.config?.pagePath || mf.slug || mf.id || id);
-            if (!candidate) continue;
-            if (param === candidate || param.startsWith(candidate + "/")) {
-              return { ...mf, id: mf.id || id, enabled: mf.enabled !== false, _source: "disk" };
-            }
-          } catch {
-            // ignore individual manifest errors
-          }
-        }
-      }
-    } catch {
-      // noop
-    }
-  }
-
   return null;
 }
 
@@ -136,4 +105,34 @@ export async function loadModuleManifest(id: string, srv?: any) {
   }
 
   return null;
+}
+
+// Minimal runtime listInstalledModules used by getPageModuleBySlug and other lookups.
+// Returns an array of modules with { id, slug, config, manifest }.
+export async function listInstalledModules() {
+  const modulesRoot = path.join(process.cwd(), "modules");
+  try {
+    const dirents = await fs.readdir(modulesRoot, { withFileTypes: true });
+    const dirs = dirents.filter(d => d.isDirectory()).map(d => d.name);
+    const result: Array<{ id: string; slug?: string; config?: any; manifest?: any }> = [];
+    for (const id of dirs) {
+      const manifestPath = path.join(modulesRoot, id, "manifest.json");
+      try {
+        const content = await fs.readFile(manifestPath, "utf8");
+        const manifest = JSON.parse(content);
+        result.push({
+          id,
+          slug: manifest.slug || id,
+          config: manifest.config || {},
+          manifest,
+        });
+      } catch (err) {
+        // skip entries without a valid manifest
+        continue;
+      }
+    }
+    return result;
+  } catch (err) {
+    return [];
+  }
 }
