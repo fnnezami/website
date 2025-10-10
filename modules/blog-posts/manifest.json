@@ -1,0 +1,14 @@
+{
+  "id": "blog-posts",
+  "name": "Blog Posts",
+  "description": "Blog posts (page module). Self-contained public + admin APIs and admin UI.",
+  "kind": "page",
+  "adminPath": "/admin/modules/blog-posts",
+  "config": {
+    "pagePath": "/blog"
+  },
+  "migrations": [
+    "migrations/0001_create_blog_posts.sql"
+  ],
+  "enabled": true
+}

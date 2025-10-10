@@ -190,6 +190,19 @@ export async function POST(req: Request) {
         before update on public.modules
         for each row execute procedure public.touch_updated_at();
       `, [], "create trg");
+
+      // Ensure migrations log table for modules exists (records applied module migrations)
+      await exec(pg, `
+        create table if not exists public.modules_migrations (
+          id serial primary key,
+          module_id text not null,
+          migration text not null,
+          success boolean,
+          applied_at timestamptz default now(),
+          error text
+        );
+      `, [], "create modules_migrations");
+      
       // ======== END MODULES FOUNDATION ========
 
     } finally {

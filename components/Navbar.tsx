@@ -6,13 +6,14 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase";
 
-const items = [
+const baseItems = [
   { label: "Resume", href: "/" },
   { label: "Publications", href: "/publications" },
   { label: "Projects", href: "/projects" },
 ];
 
-export default function Navbar() {
+export default function Navbar(props: { pageModules?: Array<any> }) {
+  const pageModules = props.pageModules || [];
   const pathname = usePathname();
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -20,7 +21,6 @@ export default function Navbar() {
   useEffect(() => {
     let mounted = true;
 
-    // 1) Read server-truth
     (async () => {
       try {
         const r = await fetch("/api/auth/state", { cache: "no-store" });
@@ -33,7 +33,6 @@ export default function Navbar() {
       }
     })();
 
-    // 2) Live updates AFTER callback returns
     const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_evt, session) => {
       setAuthed(!!session);
       setEmail(session?.user?.email ?? null);
@@ -42,12 +41,22 @@ export default function Navbar() {
     return () => { mounted = false; sub?.subscription?.unsubscribe?.(); };
   }, []);
 
+  // merge base items and module pages so they render identically
+  // NOTE: always link to the universal module route /m/<id> to keep modules self-contained
+  const mergedItems = [
+    ...baseItems,
+    ...pageModules.map((m) => ({
+      label: m.name || m.id,
+      href: `/m/${m.id}`,
+    })),
+  ];
+
   return (
-    <nav className="sticky top-[var(--nav-offset,4.5rem)] z-30 border-b bg-white">
+    <nav className="sticky top-0 z-30 border-b bg-white">
       <div className="mx-auto max-w-6xl px-4">
         <div className="flex items-center justify-between gap-6">
           <ul className="flex gap-6 text-sm">
-            {items.map((it) => {
+            {mergedItems.map((it) => {
               const active = it.href === "/" ? pathname === "/" : pathname?.startsWith(it.href);
               return (
                 <li key={it.href}>
@@ -91,12 +100,7 @@ export default function Navbar() {
                 </form>
               </>
             ) : (
-              <Link
-                href={`/login?next=${encodeURIComponent(pathname || "/")}`}
-                className="text-sm underline underline-offset-4"
-              >
-                Login
-              </Link>
+              <Link href={`/login?next=${encodeURIComponent(pathname || "/")}`} className="text-sm underline underline-offset-4">Login</Link>
             )}
           </div>
         </div>

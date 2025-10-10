@@ -1,0 +1,7 @@
+{
+  "id": "chat",
+  "name": "Floating Chat",
+  "kind": "floating",
+  "config": { "welcome": "Hi" },
+  "installer": "install.js"
+}
