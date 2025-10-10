@@ -3,5 +3,7 @@
   "name": "Floating Chat",
   "kind": "floating",
   "config": { "welcome": "Hi" },
-  "installer": "install.js"
+  "migrations": ["migrations/0001_create_chat_messages.sql"],
+  "installer": "install.js",
+  "uninstaller": "uninstall.js"
 }

@@ -110,6 +110,8 @@ export default function AdminModulesPage() {
   // notification state
   const [notif, setNotif] = useState<{ id: string; kind?: "success" | "error" | "info"; text: string } | null>(null);
   const [installResult, setInstallResult] = useState<any | null>(null);
+  const [uninstallResult, setUninstallResult] = useState<any | null>(null);
+  const [uninstallLoading, setUninstallLoading] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -457,9 +459,42 @@ export default function AdminModulesPage() {
     }
   }
 
+  // Run module uninstall via server route which will execute module's uninstall.js and remove folder
+  async function uninstallModule(moduleId: string) {
+    if (!confirm(`Uninstall module "${moduleId}"? This will run the module's uninstall script and remove its files.`)) return;
+    setUninstallLoading(moduleId);
+    setUninstallResult(null);
+    try {
+      const res = await fetch("/api/admin/modules/uninstall", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moduleId }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j?.error) {
+        throw new Error(j?.error || `uninstall failed (${res.status})`);
+      }
+      // show uninstall output and refresh list
+      setUninstallResult({ moduleId, result: j });
+      setNotif({ id: String(Date.now()), kind: "success", text: `Uninstalled ${moduleId}` });
+      await load();
+    } catch (e) {
+      const msg = String(e?.message || e);
+      setUninstallResult({ moduleId, error: msg });
+      setNotif({ id: String(Date.now()), kind: "error", text: `Uninstall failed: ${msg}` });
+    } finally {
+      setUninstallLoading(null);
+    }
+  }
+
   // helper to dismiss install modal
   function closeInstallResult() {
     setInstallResult(null);
+  }
+
+  // helper to dismiss uninstall modal
+  function closeUninstallResult() {
+    setUninstallResult(null);
   }
 
   const sorted = useMemo(() => [...rows].sort((a, b) => a.id.localeCompare(b.id)), [rows]);
@@ -509,6 +544,23 @@ export default function AdminModulesPage() {
               <div className="mb-2 font-medium">Raw result</div>
               <pre style={{ background: "#f7f7fb", padding: 12, borderRadius: 8, overflow: "auto" }}>{JSON.stringify(installResult, null, 2)}</pre>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Uninstall result modal */}
+      {uninstallResult && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30">
+          <div className="mt-16 w-full max-w-4xl bg-white rounded-lg shadow-lg p-4 overflow-auto" style={{ maxHeight: "75vh" }}>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-lg font-medium">Uninstall result</div>
+                <div className="text-sm text-gray-600">{uninstallResult?.moduleId}</div>
+              </div>
+              <div>
+                <button onClick={closeUninstallResult} className="text-sm px-3 py-1 border rounded">Close</button>
+              </div>
+            </div>
+            <pre style={{ background: "#f7f7fb", padding: 12, borderRadius: 8, overflow: "auto" }}>{JSON.stringify(uninstallResult, null, 2)}</pre>
           </div>
         </div>
       )}
@@ -581,10 +633,11 @@ export default function AdminModulesPage() {
                           Logs
                         </button>
                         <button
-                          onClick={() => onDelete(m.id)}
+                          onClick={() => uninstallModule(m.id)}
                           className="text-xs text-red-600 underline underline-offset-4"
+                          disabled={uninstallLoading === m.id}
                         >
-                          Delete
+                          {uninstallLoading === m.id ? "Uninstalling…" : "Delete"}
                         </button>
                       </td>
                     </tr>

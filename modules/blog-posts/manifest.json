@@ -10,5 +10,7 @@
   "migrations": [
     "migrations/0001_create_blog_posts.sql"
   ],
+  "installer": "install.js",
+  "uninstaller": "uninstall.js",
   "enabled": true
 }

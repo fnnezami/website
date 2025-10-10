@@ -1,4 +1,4 @@
-// Module installer for chat.
+// Module installer for blog-posts.
 // Exports async function(ctx) used by canonical installer.
 // ctx: { moduleDir, manifest, pgClient, supabaseService }
 module.exports = async function install(ctx) {
@@ -10,7 +10,9 @@ module.exports = async function install(ctx) {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Client } = require("pg");
 
-  const moduleDir = (ctx && ctx.moduleDir) || path.join(process.cwd(), "modules", "chat");
+  // IMPORTANT: resolve moduleDir from ctx if provided, otherwise use this file's directory.
+  // Using process.cwd() can be wrong when the installer is spawned with cwd set to the module folder.
+  const moduleDir = (ctx && ctx.moduleDir) || __dirname;
 
   // Use provided pg client if available, otherwise create one
   let pg = ctx && ctx.pgClient;
@@ -18,7 +20,7 @@ module.exports = async function install(ctx) {
   if (!pg) {
     const conn = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
     if (!conn) throw new Error("Missing SUPABASE_DB_URL / DATABASE_URL env for running migrations");
-    pg = new Client({ connectionString: conn, ssl: { rejectUnauthorized: false } });
+    pg = new Client({ connectionString: conn });
     await pg.connect();
     createdClient = true;
   }
@@ -31,7 +33,7 @@ module.exports = async function install(ctx) {
       manifest = JSON.parse(fs.readFileSync(mpath, "utf8"));
     }
   } catch (e) {
-    // ignore and continue
+    // ignore and continue; migrations may still be in folder
   }
 
   const migrations = Array.isArray(manifest?.migrations) ? manifest.migrations : [];
@@ -44,7 +46,7 @@ module.exports = async function install(ctx) {
       for (const mig of migrations) {
         const migPath = path.join(moduleDir, mig);
         if (!fs.existsSync(migPath)) {
-          throw new Error("Migration file not found: " + mig);
+          throw new Error("Migration file not found: " + migPath);
         }
         const sql = fs.readFileSync(migPath, "utf8");
         await pg.query(sql);
@@ -52,17 +54,23 @@ module.exports = async function install(ctx) {
       }
       await pg.query("COMMIT");
     } else {
-      // No migrations declared -> perform module-specific default setup (idempotent)
+      // No migrations declared -> no-op (or fallback behavior)
+      // keep idempotent default: create blog_posts if missing (safe)
       const defaultSql = `
-        CREATE TABLE IF NOT EXISTS chat_messages (
+        CREATE TABLE IF NOT EXISTS public.blog_posts (
           id SERIAL PRIMARY KEY,
-          user_id TEXT,
-          message TEXT,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+          title TEXT NOT NULL,
+          slug TEXT UNIQUE NOT NULL,
+          summary TEXT,
+          content TEXT NOT NULL,
+          published BOOLEAN DEFAULT FALSE,
+          author_email TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
         );
       `;
       await pg.query(defaultSql);
-      applied.push({ migration: "(default chat setup)", ok: true });
+      applied.push({ migration: "(default blog-posts setup)", ok: true });
     }
   } catch (err) {
     try { await pg.query("ROLLBACK"); } catch {}

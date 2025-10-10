@@ -114,7 +114,7 @@ export async function POST(req: Request) {
         );
       `);
 
-      // upsert the registry row first (so module appears in admin immediately)
+      // upsert module record
       await client.query(
         `INSERT INTO public.modules (id, kind, title, enabled, config, updated_at)
          VALUES ($1, $2, $3, true, $4::jsonb, now())
@@ -122,77 +122,88 @@ export async function POST(req: Request) {
         [manifest.id, (manifest as any).kind || "floating", manifest.name || null, JSON.stringify(manifest.config || {})]
       );
 
-      // Now run the module's installer script if present
-      const moduleDir = path.join(process.cwd(), "modules", moduleId);
-      const installerName = manifest.installer || "install.js";
+      // === RUN MODULE INSTALLER SCRIPT (MANDATORY) ===
+      // Always attempt to run the module's installer script after registry upsert.
+      const moduleDir = path.join(process.cwd(), "modules", manifest.id);
+      let installerName = (manifest && (manifest.installer || manifest.installerFile)) || "install.js";
       const installerPath = path.join(moduleDir, installerName);
-
       const installerResult: any = { ran: false };
 
-      if (fs.existsSync(installerPath)) {
-        installerResult.ran = true;
-        // support .ts/.tsx by registering ts-node at runtime if available
-        if (installerPath.endsWith(".ts") || installerPath.endsWith(".tsx")) {
-          try {
-            // avoid static require analysis by webpack/bundler
-            // eslint-disable-next-line no-eval
-            const req = eval("require");
-            const tsnode = req("ts-node");
-            if (tsnode && typeof tsnode.register === "function") tsnode.register({ transpileOnly: true });
-          } catch (e) {
-            throw new Error("ts-node not available. install ts-node and typescript to run .ts installers: npm install ts-node typescript");
+      if (!fs.existsSync(installerPath)) {
+        // fallback: common alternatives
+        const alts = ["install.js", "install.mjs", "install.ts", "install.tsx"];
+        for (const a of alts) {
+          const p = path.join(moduleDir, a);
+          if (fs.existsSync(p)) {
+            installerName = a;
+            break;
           }
-        }
-
-        // Load installer module without letting bundler analyze dynamic require.
-        let mod: any = null;
-        try {
-          // eslint-disable-next-line no-eval
-          const req = eval("require");
-          mod = req(installerPath);
-        } catch (reqErr) {
-          // fallback to dynamic ESM import (convert path to file URL)
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const { pathToFileURL } = require("url");
-            const imp = await import(pathToFileURL(installerPath).href);
-            mod = imp;
-          } catch (impErr) {
-            throw new Error("failed to load installer module: " + String(reqErr?.message || reqErr) + " / " + String(impErr?.message || impErr));
-          }
-        }
-
-        const fn = mod?.default || mod?.install || mod?.run || mod;
-        if (typeof fn !== "function") {
-          throw new Error("installer did not export a function (default / install / run)");
-        }
-
-        // provide context to installer
-        const SUPA_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-        const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || "";
-        const supabaseService = SUPA_URL && SERVICE_KEY ? createClient(SUPA_URL, SERVICE_KEY) : null;
-
-        // pass a PG client instance for installer usage
-        const pgForInstaller = await getPgClient();
-
-        try {
-          const out = await fn({
-            moduleDir,
-            manifest,
-            pgClient: pgForInstaller,
-            supabaseService,
-          });
-          installerResult.output = out;
-        } catch (err: any) {
-          installerResult.error = String(err?.message || err);
-          throw new Error("installer failed: " + installerResult.error);
-        } finally {
-          await pgForInstaller.end().catch(() => {});
         }
       }
 
+      const finalInstallerPath = path.join(moduleDir, installerName);
+      if (fs.existsSync(finalInstallerPath)) {
+        installerResult.ran = true;
+        try {
+          // spawn a separate Node process to execute the module installer
+          // supports .ts/.tsx via -r ts-node/register if available
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { spawnSync } = require("child_process");
+          const ext = path.extname(finalInstallerPath).toLowerCase();
+          let args: string[] = [];
+
+          if (ext === ".ts" || ext === ".tsx") {
+            try {
+              // ensure ts-node/register is resolvable
+              // eslint-disable-next-line @typescript-eslint/no-var-requires
+              require.resolve("ts-node/register");
+              args = ["-r", "ts-node/register", finalInstallerPath];
+            } catch (e) {
+              throw new Error("TypeScript installer detected but ts-node not installed. Install ts-node + typescript or use a JS installer.");
+            }
+          } else {
+            args = [finalInstallerPath];
+          }
+
+          const proc = spawnSync(process.execPath, args, {
+            cwd: moduleDir,
+            env: Object.assign({}, process.env),
+            encoding: "utf8",
+            timeout: 5 * 60 * 1000,
+            maxBuffer: 20 * 1024 * 1024,
+          });
+
+          installerResult.proc = {
+            status: proc.status,
+            stdout: proc.stdout ? String(proc.stdout).slice(0, 200000) : "",
+            stderr: proc.stderr ? String(proc.stderr).slice(0, 200000) : "",
+          };
+
+          // surface installer output in the API response and server logs
+          // eslint-disable-next-line no-console
+          console.log("[module-installer]", manifest.id, "status=", installerResult.proc.status);
+          // eslint-disable-next-line no-console
+          console.log("[module-installer] stdout:", installerResult.proc.stdout);
+          // eslint-disable-next-line no-console
+          console.error("[module-installer] stderr:", installerResult.proc.stderr);
+
+          if (proc.status !== 0) {
+            throw new Error(`installer exited with status ${proc.status}. stderr: ${installerResult.proc.stderr}`);
+          }
+        } catch (err: any) {
+          await client.query("ROLLBACK").catch(() => {});
+          return NextResponse.json({ error: String(err?.message || err), installer: installerResult }, { status: 500 });
+        }
+      } else {
+        // No installer found — treat as no-op but explicitly note it
+        installerResult.ran = false;
+      }
+      // === END RUN INSTALLER ===
+
+      await client.query("COMMIT");
       return NextResponse.json({ ok: true, installer: installerResult });
     } catch (err: any) {
+      await client.query("ROLLBACK").catch(() => {});
       return NextResponse.json({ error: String(err?.message || err) }, { status: 500 });
     } finally {
       await client.end().catch(() => {});
