@@ -5,10 +5,15 @@ import { createServerClient } from "@supabase/ssr";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(req: Request) {
   const SUPA_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const SUPA_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+
+  // Derive external origin from headers (works with host aliases/proxies)
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "localhost:3000";
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+  const base = `${proto}://${host}`;
+
   const res = NextResponse.redirect(new URL("/login", base));
 
   if (!SUPA_URL || !SUPA_ANON) {

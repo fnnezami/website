@@ -9,6 +9,20 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+
+  // Derive real origin from headers (works with hosts alias/proxies)
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host;
+  const proto = req.headers.get("x-forwarded-proto") ?? (url.protocol.replace(":", "") || "http");
+  const baseOrigin = `${proto}://${host}`;
+
+  console.error("callback called:", {
+    url: url.toString(),
+    urlOrigin: url.origin,
+    host,
+    proto,
+    baseOrigin,
+  });
+
   const code = url.searchParams.get("code");
   const next = url.searchParams.get("next") || "/admin";
 
@@ -17,13 +31,12 @@ export async function GET(req: Request) {
   const DB_URL_RAW = process.env.DATABASE_URL || ""; // needed to write allowlist
 
   if (!SUPA_URL || !SUPA_ANON) {
-    return NextResponse.redirect(new URL("/setup/install", url.origin));
+    return NextResponse.redirect(new URL("/setup/install", baseOrigin));
   }
 
   // We’ll redirect here when done
-  const res = NextResponse.redirect(new URL(next, url.origin));
+  const res = NextResponse.redirect(new URL(next, baseOrigin));
 
-  // Bind Supabase to request cookies and write session cookies to the response
   const jar = await cookies();
   const supa = createServerClient(SUPA_URL, SUPA_ANON, {
     cookies: {
@@ -36,12 +49,11 @@ export async function GET(req: Request) {
     },
   });
 
-  // 1) Finish OAuth — set session cookies
   if (code) {
     const { error } = await supa.auth.exchangeCodeForSession(code);
     if (error) {
       return NextResponse.redirect(
-        new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
+        new URL(`/login?error=${encodeURIComponent(error.message)}`, baseOrigin)
       );
     }
   }
