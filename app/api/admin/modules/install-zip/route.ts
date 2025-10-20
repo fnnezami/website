@@ -1,106 +1,104 @@
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
-import AdmZip from "adm-zip";
+
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
+    const form = await req.formData();
+    const file = form.get("file") as any;
+    if (!file) return NextResponse.json({ ok: false, error: "no file uploaded" }, { status: 400 });
 
-    if (!file) {
-      return NextResponse.json({ ok: false, error: "No file provided" }, { status: 400 });
+    // buffer the uploaded zip
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // server-only requires
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("fs");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require("path");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const AdmZip = require("adm-zip");
+
+    const tmpDir = path.join(process.cwd(), "tmp", `module-upload-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    // extract zip buffer
+    try {
+      const zip = new AdmZip(buffer);
+      zip.extractAllTo(tmpDir, true);
+    } catch (err: any) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      return NextResponse.json({ ok: false, error: "failed to extract zip: " + String(err?.message || err) }, { status: 400 });
     }
 
-    // Read file buffer
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    // Extract ZIP using adm-zip
-    const zip = new AdmZip(buffer);
-    const zipEntries = zip.getEntries();
-
-    // Find manifest.json to get module ID
-    const manifestEntry = zipEntries.find(
-      (entry) => !entry.isDirectory && entry.entryName.endsWith("manifest.json")
-    );
-
-    if (!manifestEntry) {
-      return NextResponse.json(
-        { ok: false, error: "No manifest.json found in ZIP" },
-        { status: 400 }
-      );
+    // find manifest.json (root or first-level folder)
+    function findManifest(dir: string) {
+      const rootManifest = path.join(dir, "manifest.json");
+      if (fs.existsSync(rootManifest)) return rootManifest;
+      const items = fs.readdirSync(dir);
+      for (const it of items) {
+        const p = path.join(dir, it, "manifest.json");
+        if (fs.existsSync(p)) return p;
+      }
+      return null;
     }
 
-    // Parse manifest
-    const manifestData = manifestEntry.getData().toString("utf8");
-    const manifest = JSON.parse(manifestData);
-    const moduleId = manifest.id || manifest.slug;
-
-    if (!moduleId) {
-      return NextResponse.json(
-        { ok: false, error: "Module ID not found in manifest" },
-        { status: 400 }
-      );
+    const manifestPath = findManifest(tmpDir);
+    if (!manifestPath) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      return NextResponse.json({ ok: false, error: "manifest.json not found in archive" }, { status: 400 });
     }
 
-    // Target directory
+    const manifestRaw = fs.readFileSync(manifestPath, "utf8");
+    let manifest: any;
+    try {
+      manifest = JSON.parse(manifestRaw);
+    } catch (err: any) {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      return NextResponse.json({ ok: false, error: "invalid manifest.json" }, { status: 400 });
+    }
+
+    // determine module id and source folder inside tmpDir
+    const moduleId = String(manifest.id || manifest.name || path.basename(path.dirname(manifestPath))).replace(/\s+/g, "-");
+    const sourceDir = path.dirname(manifestPath) === tmpDir ? tmpDir : path.join(tmpDir, path.basename(path.dirname(manifestPath)));
+
     const modulesDir = path.join(process.cwd(), "modules");
+    fs.mkdirSync(modulesDir, { recursive: true });
+
     const targetDir = path.join(modulesDir, moduleId);
 
-    // Check if module already exists
+    // if module already exists, remove it (replace)
+    if (fs.existsSync(targetDir)) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+    }
+
+    // move/copy extracted files to modules/<moduleId>
     try {
-      await fs.access(targetDir);
-      return NextResponse.json(
-        { ok: false, error: `Module ${moduleId} already exists` },
-        { status: 409 }
-      );
+      fs.renameSync(sourceDir, targetDir);
     } catch {
-      // Directory doesn't exist, good to proceed
+      // fallback: recursive copy
+      const copyRecursive = (src: string, dest: string) => {
+        const stats = fs.statSync(src);
+        if (stats.isDirectory()) {
+          fs.mkdirSync(dest, { recursive: true });
+          for (const item of fs.readdirSync(src)) {
+            copyRecursive(path.join(src, item), path.join(dest, item));
+          }
+        } else {
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.copyFileSync(src, dest);
+        }
+      };
+      copyRecursive(sourceDir, targetDir);
     }
 
-    // Create modules directory if it doesn't exist
-    await fs.mkdir(modulesDir, { recursive: true });
+    // cleanup temp dir
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
 
-    // Extract all files
-    for (const entry of zipEntries) {
-      const entryPath = entry.entryName;
-
-      // Skip __MACOSX and other hidden files
-      if (entryPath.includes("__MACOSX") || entryPath.startsWith(".")) {
-        continue;
-      }
-
-      // Remove top-level folder name if present
-      const parts = entryPath.split("/");
-      const relativePath = parts.length > 1 ? parts.slice(1).join("/") : entryPath;
-
-      if (!relativePath) continue;
-
-      const fullPath = path.join(targetDir, relativePath);
-
-      if (entry.isDirectory) {
-        await fs.mkdir(fullPath, { recursive: true });
-      } else {
-        // Ensure parent directory exists
-        await fs.mkdir(path.dirname(fullPath), { recursive: true });
-        // Write file
-        const content = entry.getData();
-        await fs.writeFile(fullPath, content);
-      }
-    }
-
-    return NextResponse.json({
-      ok: true,
-      id: moduleId,
-      message: `Module ${moduleId} extracted successfully`,
-      manifest,
-    });
-  } catch (error: any) {
-    console.error("Error installing from ZIP:", error);
-    return NextResponse.json(
-      { ok: false, error: error?.message || String(error) },
-      { status: 500 }
-    );
+    // Return module id and manifest — admin UI can call /api/admin/modules/install afterwards
+    return NextResponse.json({ ok: true, id: moduleId, manifest });
+  } catch (err: any) {
+    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
   }
 }
