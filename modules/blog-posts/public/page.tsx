@@ -186,21 +186,21 @@ export default async function Page() {
   );
 }
 
-async function ArchivedList() {
-  const archived: Post[] = (await (api as any).listArchivedPosts?.()) || [];
-  if (!archived || archived.length === 0) {
-    return <div style={{ color: "#666" }}>No archived posts.</div>;
-  }
-  return (
-    <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
-      {archived.map((p) => (
-        <li key={p.slug ?? p.id} style={{ marginBottom: 8 }}>
-          <Link href={`/m/blog-posts/${p.slug ?? ""}`} style={{ color: "#0b66ff", textDecoration: "none" }}>
-            {p.title}
-          </Link>
-          <div style={{ color: "#888", fontSize: 12 }}>{formatDate(p.published_at)}</div>
-        </li>
-      ))}
-    </ul>
-  );
-}
+// async function ArchivedList() {
+//   const archived: Post[] = (await (api as any).listArchivedPosts?.()) || [];
+//   if (!archived || archived.length === 0) {
+//     return <div style={{ color: "#666" }}>No archived posts.</div>;
+//   }
+//   return (
+//     <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+//       {archived.map((p) => (
+//         <li key={p.slug ?? p.id} style={{ marginBottom: 8 }}>
+//           <Link href={`/m/blog-posts/${p.slug ?? ""}`} style={{ color: "#0b66ff", textDecoration: "none" }}>
+//             {p.title}
+//           </Link>
+//           <div style={{ color: "#888", fontSize: 12 }}>{formatDate(p.published_at)}</div>
+//         </li>
+//       ))}
+//     </ul>
+//   );
+// }

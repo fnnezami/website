@@ -32,21 +32,44 @@ async function forward(req: Request, paramsArg: any) {
   }
 }
 
-export async function GET(req: Request, ctx: { params?: any }) {
+export async function GET(
+  req: Request,
+  context: { params: Promise<{ id: string; rest: string[] }> }
+) {
+  const params = await context.params;
+  const { id, rest } = params;
+
+  return forward(req, context?.params);
+}
+export async function POST(
+  req: Request,
+  ctx: { params: Promise<{ id: string; rest: string[] }> }
+) {
   return forward(req, ctx?.params);
 }
-export async function POST(req: Request, ctx: { params?: any }) {
+export async function PUT(
+  req: Request,
+  ctx: { params: Promise<{ id: string; rest: string[] }> }
+) {
   return forward(req, ctx?.params);
 }
-export async function PUT(req: Request, ctx: { params?: any }) {
+export async function DELETE(
+  req: Request,
+  ctx: { params: Promise<{ id: string; rest: string[] }> }
+) {
   return forward(req, ctx?.params);
 }
-export async function DELETE(req: Request, ctx: { params?: any }) {
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<{ id: string; rest: string[] }> }
+) {
   return forward(req, ctx?.params);
 }
-export async function PATCH(req: Request, ctx: { params?: any }) {
-  return forward(req, ctx?.params);
-}
-export async function OPTIONS(req: Request, ctx: { params?: any }) {
-  return forward(req, ctx?.params);
+export async function OPTIONS(
+  req: Request,
+  context: { params: Promise<{ id: string; rest: string[] }> }
+) {
+  const params = await context.params;
+  
+  return forward(req, context?.params);
 }

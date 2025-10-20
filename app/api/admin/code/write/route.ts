@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     const markerStart = "// AUTO-REGISTRY-START";
     const markerEnd   = "// AUTO-REGISTRY-END";
 
-    let reg = await fs.readFile(regPath, "utf8").catch(() => "");
+    const reg = await fs.readFile(regPath, "utf8");
     if (!reg || !reg.includes(markerStart) || !reg.includes(markerEnd)) {
       return NextResponse.json({
         ok: true,

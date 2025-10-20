@@ -13,7 +13,7 @@ export default async function ModulePage(props: { params?: any }) {
   const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   const srv = SUPA_URL && SERVICE ? createClient(SUPA_URL, SERVICE) : undefined;
 
-  const mod = await getPageModuleBySlug(slug, srv as any);
+  const mod = await getPageModuleBySlug(slug);
   if (!mod) return notFound();
 
   // Try to render module-provided public UI if present
@@ -39,7 +39,7 @@ export default async function ModulePage(props: { params?: any }) {
       const posts = await listPublished();
       return (
         <div className="mx-auto max-w-3xl px-4 py-8">
-          <h1 className="text-2xl font-semibold">{mod.name}</h1>
+          <h1 className="text-2xl font-semibold">{mod.manifest?.name || mod.id}</h1>
           <div className="space-y-6 mt-6">
             {posts.map((p: any) => (
               <article key={p.slug} className="border rounded-md p-4 bg-white">

@@ -1,7 +1,7 @@
 // app/admin/modules/page.tsx
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, JSX } from "react";
 import dynamic from "next/dynamic";
 import { loadManifestsWithRegistry } from "@/lib/modules";
 import ReactMarkdown from "react-markdown";
@@ -225,7 +225,7 @@ export default function AdminModulesPage() {
 
   async function load() {
     setLoading(true);
-    setError(null);
+    setError("");
     try {
       // request modules from DB; includeDisabled=1 so disabled modules still appear
       const res = await fetch("/api/modules/registry?includeDisabled=1", { cache: "no-store" });
@@ -452,7 +452,7 @@ export default function AdminModulesPage() {
   async function installFromZipFile(file: File | null) {
     if (!file) return;
     setZipUploading(true);
-    setError(null);
+    setError("");
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -512,7 +512,7 @@ export default function AdminModulesPage() {
       setNotif({ id: String(Date.now()), kind: "success", text: `Uninstalled ${moduleId}` });
       await load();
     } catch (e) {
-      const msg = String(e?.message || e);
+      const msg = prettyErr(e);
       setUninstallResult({ moduleId, error: msg });
       setNotif({ id: String(Date.now()), kind: "error", text: `Uninstall failed: ${msg}` });
     } finally {

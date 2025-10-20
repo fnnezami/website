@@ -6,9 +6,13 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function ModuleAdminPage({ params }: { params?: { id?: string | Promise<string> } }) {
-  const resolvedParams = params ? await params : undefined;
-  const segs = resolvedParams?.id ? [resolvedParams.id] : [];
+export default async function ModulePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const segs = id ? [id] : [];
   if (!segs || segs.length === 0) return notFound();
 
   const moduleId = String(segs[0]);
@@ -59,6 +63,7 @@ export default async function ModuleAdminPage({ params }: { params?: { id?: stri
           {String(err?.message || err)}
         </pre>
         <p>Checked modules/{moduleId}/admin (ensure the file exists and exports a default client component).</p>
+        <p className="text-sm text-gray-600">Module ID: {`"${moduleId}"`}</p>
       </div>
     );
   }

@@ -1,21 +1,41 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServer } from "@/lib/supabase-ssr";
-import { supabaseServer } from "@/lib/supabase-server"; // service role for secure write
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import { getSupabaseServer } from "@/lib/supabase-server"; // service role for secure write
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const supa = getSupabaseServer();
+    const adminEmail = body.adminEmail?.toLowerCase() || "";
+
+    const jar = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll: () => jar.getAll(),
+          setAll: (cookiesToSet) => {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              jar.set(name, value, options);
+            });
+          },
+        },
+      }
+    );
 
     // require login
-    const { data: { user } } = await supa.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
 
     // Is there already an admin?
-    const { data: admins } = await supa.from("profiles").select("id").eq("role", "admin").limit(1);
+    const { data: admins } = await supabase.from("profiles").select("id").eq("role", "admin").limit(1);
     const firstAdmin = (admins?.length ?? 0) === 0;
+
+    const supabaseServer = await getSupabaseServer();
 
     // If first admin, promote current user
     if (firstAdmin) {

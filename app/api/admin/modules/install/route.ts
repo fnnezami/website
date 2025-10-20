@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { Client } from "pg";
 import path from "path";
 import fs from "fs";
-import { loadModuleManifest, readModuleMigrationSQL } from "@/lib/modules";
+import { loadModuleManifest } from "@/lib/modules";
 
 export const runtime = "nodejs";
 

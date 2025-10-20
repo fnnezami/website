@@ -21,9 +21,12 @@ export async function POST() {
   const cookieStore = await cookies();
   const supa = createServerClient(SUPA_URL, SUPA_ANON, {
     cookies: {
-      get: (name: string) => cookieStore.get(name)?.value,
-      set: (name, value, options) => res.cookies.set({ name, value, ...options }),
-      remove: (name, options) => res.cookies.set({ name, value: "", ...options }),
+      getAll: () => cookieStore.getAll(),
+      setAll: (cookiesToSet) => {
+        cookiesToSet.forEach(({ name, value, options }) =>
+          res.cookies.set(name, value, options)
+        );
+      },
     },
   });
 

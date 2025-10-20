@@ -22,9 +22,12 @@ export async function GET(req: Request) {
   const jar = await cookies();
   const supa = createServerClient(SUPA_URL, SUPA_ANON, {
     cookies: {
-      get: (name) => jar.get(name)?.value,
-      set: (name, value, options) => res.cookies.set({ name, value, ...options }),
-      remove: (name, options) => res.cookies.set({ name, value: "", ...options }),
+      getAll: () => jar.getAll(),
+      setAll: (cookiesToSet) => {
+        cookiesToSet.forEach(({ name, value, options }) =>
+          res.cookies.set(name, value, options)
+        );
+      },
     },
   });
 

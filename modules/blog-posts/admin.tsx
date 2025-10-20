@@ -184,9 +184,9 @@ export default function BlogPostsModuleAdmin({ manifest }: { manifest?: any }) {
   async function handleFiles(files: FileList | File[]) {
     const arr = Array.from(files as any);
     for (const f of arr) {
-      if (!f.type.startsWith("image/")) continue;
+      if (!(f as File).type.startsWith("image/")) continue;
       try {
-        const url = await uploadFile(f);
+        const url = await uploadFile(f as File);
         insertImage(url);
       } catch (err: any) {
         setErrorMessage(String(err?.message || err));

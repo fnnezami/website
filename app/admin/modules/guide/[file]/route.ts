@@ -22,10 +22,10 @@ export async function GET(
         "Content-Type": "text/markdown; charset=utf-8",
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error loading guide:", error);
     return NextResponse.json(
-      { error: error?.message || "Failed to load guide" },
+      { error: error instanceof Error ? error.message : "Failed to load guide" },
       { status: 500 }
     );
   }

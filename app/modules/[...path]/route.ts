@@ -1,60 +1,43 @@
-import fs from "fs/promises";
-import path from "path";
 import { NextResponse } from "next/server";
+import { readFile } from "fs/promises";
+import path from "path";
 
-const modulesRoot = path.join(process.cwd(), "modules");
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-function getMimeType(filePath: string) {
-    if (filePath.endsWith(".json")) return "application/json; charset=utf-8";
-    if (filePath.endsWith(".js")) return "application/javascript; charset=utf-8";
-    if (filePath.endsWith(".css")) return "text/css; charset=utf-8";
-    if (filePath.endsWith(".html")) return "text/html; charset=utf-8";
-    if (filePath.endsWith(".svg")) return "image/svg+xml";
-    if (filePath.endsWith(".png")) return "image/png";
-    if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) return "image/jpeg";
-    return "application/octet-stream";
-}
+export async function GET(
+  req: Request,
+  context: { params: Promise<{ path: string[] }> }
+) {
+  try {
+    // Await params directly, not the context
+    const params = await context.params;
+    const segments = params.path || [];
 
-export async function GET(_: Request, context: any) {
-    // Next.js requires awaiting the context before using params
-    const { params } = await context;
-    const segments = params?.path || [];
     if (segments.length < 2) {
-        return new NextResponse(null, { status: 404 });
+      return new NextResponse(null, { status: 404 });
     }
 
     const moduleId = segments[0];
-    const rest = segments.slice(1);
+    const filePath = segments.slice(1).join("/");
 
-    // Only allow:
-    //  - /modules/<moduleId>/manifest.json
-    //  - /modules/<moduleId>/public/...
-    const allowedManifest = rest.length === 1 && rest[0] === "manifest.json";
-    const allowedPublic = rest[0] === "public";
+    const fullPath = path.join(process.cwd(), "modules", moduleId, filePath);
+    const content = await readFile(fullPath, "utf-8");
 
-    if (!allowedManifest && !allowedPublic) {
-        return new NextResponse(null, { status: 404 });
-    }
+    const ext = path.extname(filePath);
+    let contentType = "text/plain; charset=utf-8";
 
-    const filePath = path.join(modulesRoot, moduleId, ...rest);
-    // Security: ensure resolved path is inside modulesRoot
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(path.resolve(modulesRoot) + path.sep)) {
-        return new NextResponse(null, { status: 403 });
-    }
+    if (ext === ".js") contentType = "application/javascript; charset=utf-8";
+    else if (ext === ".json") contentType = "application/json; charset=utf-8";
+    else if (ext === ".css") contentType = "text/css; charset=utf-8";
 
-    try {
-        const stat = await fs.stat(resolved);
-        if (!stat.isFile()) return new NextResponse(null, { status: 404 });
-        const data = await fs.readFile(resolved);
-        const mime = getMimeType(resolved);
-        return new NextResponse(data, {
-            status: 200,
-            headers: {
-                "content-type": mime,
-            },
-        });
-    } catch (err) {
-        return new NextResponse(null, { status: 404 });
-    }
+    return new NextResponse(content, {
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "no-cache",
+      },
+    });
+  } catch (err: any) {
+    return new NextResponse(`Not found: ${err.message}`, { status: 404 });
+  }
 }

@@ -1,10 +1,10 @@
-import { getSupabaseServer } from "@/lib/supabase-ssr";
+import { createClient } from "@/lib/supabase-ssr";
 import SetupForm from "./setup-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function SetupPage() {
-  const supa = getSupabaseServer();
+  const supa = await createClient();
 
   // Check if any admin exists
   const { data: admins } = await supa.from("profiles").select("id").eq("role", "admin").limit(1);

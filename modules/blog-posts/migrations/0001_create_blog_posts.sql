@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS blog_posts (
   summary TEXT,
   content TEXT NOT NULL,
   published BOOLEAN DEFAULT FALSE,
+  archived BOOLEAN DEFAULT FALSE,
   author_email TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()

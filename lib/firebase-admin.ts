@@ -1,4 +1,4 @@
-import { env } from "./env";
+import { envServer as env } from "./env-server";
 import * as admin from "firebase-admin";
 
 const app = admin.apps.length

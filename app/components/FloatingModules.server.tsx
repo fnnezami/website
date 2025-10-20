@@ -19,7 +19,7 @@ export default async function FloatingModulesServer() {
 
   return (
     <>
-      {items.map((it) => (
+      {items.map((it: any) => (
         <ModuleClientLoader key={it.id} moduleId={it.id} file={it.file} manifest={it.manifest} />
       ))}
     </>

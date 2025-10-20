@@ -6,9 +6,13 @@ import { createClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function ModulePage({ params }: { params?: { path?: string[] | Promise<string[]> } }) {
-  const resolvedParams = params ? await params : undefined;
-  const segs = resolvedParams?.path ?? [];
+export default async function ModulePublicPage({ 
+  params 
+}: { 
+  params: Promise<{ path: string[] }> 
+}) {
+  const { path: segments } = await params;
+  const segs = segments ?? [];
   if (!segs || segs.length === 0) return notFound();
 
   const moduleId = String(segs[0]);

@@ -1,5 +1,5 @@
 import { createHmac } from "crypto";
-import { env } from "./env";
+import { envServer as env } from "./env-server";
 
 export function signPayload(payload: unknown) {
   const body = typeof payload === "string" ? payload : JSON.stringify(payload);
