@@ -8,17 +8,32 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  console.error("==================Signin called with URL:", url.toString());
+
+  const host = req.headers.get("x-forwarded-host");
+  const proto = req.headers.get("x-forwarded-proto");
+  const vercelUrl = req.headers.get("x-vercel-deployment-url");
+  const referer = req.headers.get("referer");
+  console.error("[signin] url:", url.toString());
+  console.error("[signin] x-forwarded-host:", host);
+  console.error("[signin] x-forwarded-proto:", proto);
+  console.error("[signin] x-vercel-deployment-url:", vercelUrl);
+  console.error("[signin] referer:", referer);
+
   const next = url.searchParams.get("next") || "/admin";
+  const baseOrigin =
+    (proto ? `${proto}://` : url.protocol) +
+    (host || url.host);
+  console.error("[signin] baseOrigin:", baseOrigin);
 
   const SUPA_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const SUPA_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
   if (!SUPA_URL || !SUPA_ANON) {
-    return NextResponse.redirect(new URL("/setup/install", url.origin));
+    return NextResponse.redirect(new URL("/setup/install", baseOrigin));
   }
+// Compute external origin (works with hosts alias/proxies)
 
   // IMPORTANT: create a response object we will RETURN (so cookies stick)
-  const res = NextResponse.redirect(new URL("/", url.origin)); // temp; we'll overwrite Location below
+  const res = NextResponse.redirect(new URL("/", baseOrigin)); // temp; we'll overwrite Location below
 
   const jar = await cookies();
   const supa = createServerClient(SUPA_URL, SUPA_ANON, {
@@ -32,20 +47,16 @@ export async function GET(req: Request) {
     },
   });
 
-  // Compute external origin (works with hosts alias/proxies)
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host;
-  const proto = req.headers.get("x-forwarded-proto") ?? (url.protocol.replace(":", "") || "http");
-  const baseOrigin = `${proto}://${host}`;
+  
 
-  //const redirectTo = `${url.origin}/auth/callback?next=${encodeURIComponent(next)}`;
   const redirectTo = `${baseOrigin}/auth/callback?next=${encodeURIComponent(next)}`;
+  console.error("[signin] redirectTo:", redirectTo);
 
-  // This sets the PKCE code_verifier cookie via our 'res' cookie setters
   const { data, error } = await supa.auth.signInWithOAuth({
     provider: "github",
     options: { redirectTo },
   });
-  console.error("OAuth redirect URL:", data?.url); // confirm target
+  console.error("[signin] provider url:", data?.url, "error:", error?.message);
 
   if (error || !data?.url) {
     return NextResponse.redirect(
