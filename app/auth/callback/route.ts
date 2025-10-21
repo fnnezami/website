@@ -11,12 +11,10 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const host = req.headers.get("x-forwarded-host");
   const proto = req.headers.get("x-forwarded-proto");
-  const vercelUrl = req.headers.get("x-vercel-deployment-url");
   const referer = req.headers.get("referer");
   console.error("[callback] url:", url.toString());
   console.error("[callback] x-forwarded-host:", host);
   console.error("[callback] x-forwarded-proto:", proto);
-  console.error("[callback] x-vercel-deployment-url:", vercelUrl);
   console.error("[callback] referer:", referer);
 
   const baseOrigin =
