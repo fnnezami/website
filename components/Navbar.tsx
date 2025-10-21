@@ -76,7 +76,7 @@ export default function Navbar(props: { pageModules?: Array<any> }) {
         if (typeof supabaseBrowser !== "undefined" && supabaseBrowser.from) {
           const q = await supabaseBrowser
             .from("modules")
-            .select("id,name,config,manifest_path,enabled,kind")
+            .select("id,name,config,enabled,kind")
             .eq("kind", "page")
             .eq("enabled", true);
           if (!mounted) return;
@@ -99,13 +99,9 @@ export default function Navbar(props: { pageModules?: Array<any> }) {
         const name = m.name || m.moduleName || null;
 
         // try to read manifest from module folder(s)
-        // Try manifest from DB-provided manifest_path, then from the module public API,
-        // then fall back to a static /modules/<id>/manifest.json path.
+        // /modules/<id>/manifest.json path.
         const manifestPaths: string[] = [];
-        if (m?.manifest_path && typeof m.manifest_path === "string") manifestPaths.push(m.manifest_path);
-        // IMPORTANT: client cannot read repo fs directly — use the server API that can read FS.
-        if (id) manifestPaths.push(`/api/modules/public?module=${encodeURIComponent(id)}&file=manifest.json`);
-        if (name) manifestPaths.push(`/api/modules/public?module=${encodeURIComponent(name)}&file=manifest.json`);
+        
         // last-resort static URL (may 404 in dev if not served as static)
         if (id) manifestPaths.push(`/modules/${id}/manifest.json`);
         if (name) manifestPaths.push(`/modules/${name}/manifest.json`);

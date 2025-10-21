@@ -15,13 +15,14 @@ async function getPg() {
   return pg;
 }
 
-// ensure share_settings column exists (idempotent)
-async function ensureShareSettings(pg: Client) {
+// ensure required columns exist (idempotent)
+async function ensureSchema(pg: Client) {
   try {
     await pg.query(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS share_settings JSONB DEFAULT '{}'::jsonb;`);
-  } catch {
-    // ignore - best-effort
-  }
+  } catch {}
+  try {
+    await pg.query(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;`);
+  } catch {}
 }
 
 export type PublicPost = {
@@ -31,6 +32,7 @@ export type PublicPost = {
   summary?: string | null;
   content: string;
   published: boolean;
+  archived?: boolean | null;
   author_email?: string | null;
   created_at: string;
   updated_at: string;
@@ -41,9 +43,9 @@ export type PublicPost = {
 export async function listPublishedPosts(): Promise<PublicPost[]> {
   const pg = await getPg();
   try {
-    await ensureShareSettings(pg);
+    await ensureSchema(pg);
     const res = await pg.query(
-      `SELECT id, title, slug, summary, content, published, author_email, created_at, updated_at, share_settings
+      `SELECT id, title, slug, summary, content, published, archived, author_email, created_at, updated_at, share_settings
        FROM blog_posts
        WHERE published = true
        ORDER BY created_at DESC`
@@ -58,9 +60,9 @@ export async function listPublishedPosts(): Promise<PublicPost[]> {
 export async function getPostBySlug(slug: string): Promise<PublicPost | null> {
   const pg = await getPg();
   try {
-    await ensureShareSettings(pg);
+    await ensureSchema(pg);
     const res = await pg.query(
-      `SELECT id, title, slug, summary, content, published, author_email, created_at, updated_at, share_settings
+      `SELECT id, title, slug, summary, content, published, archived, author_email, created_at, updated_at, share_settings
        FROM blog_posts
        WHERE slug = $1
        LIMIT 1`,
@@ -76,10 +78,9 @@ export async function getPostBySlug(slug: string): Promise<PublicPost | null> {
 export async function adminListPosts(): Promise<PublicPost[]> {
   const pg = await getPg();
   try {
-    // ensure share_settings exists (idempotent)
-    await pg.query(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS share_settings JSONB DEFAULT '{}'::jsonb;`);
+    await ensureSchema(pg);
     const res = await pg.query(
-      `SELECT id, title, slug, summary, content, published, author_email, created_at, updated_at, share_settings
+      `SELECT id, title, slug, summary, content, published, archived, author_email, created_at, updated_at, share_settings
        FROM blog_posts
        ORDER BY created_at DESC`
     );
@@ -101,7 +102,7 @@ export async function adminCreatePost(payload: {
 }) {
   const pg = await getPg();
   try {
-    await pg.query(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS share_settings JSONB DEFAULT '{}'::jsonb;`);
+    await ensureSchema(pg);
     const res = await pg.query(
       `INSERT INTO blog_posts (title, slug, summary, content, published, author_email, share_settings)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -133,7 +134,7 @@ export async function adminUpdatePost(id: number, payload: {
 }) {
   const pg = await getPg();
   try {
-    await pg.query(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS share_settings JSONB DEFAULT '{}'::jsonb;`);
+    await ensureSchema(pg);
     await pg.query(
       `UPDATE blog_posts SET title=$1, slug=$2, summary=$3, content=$4, published=$5, share_settings=$6, updated_at=now() WHERE id=$7`,
       [

@@ -3,7 +3,6 @@
 
 import { useEffect, useRef, useState, useMemo, JSX } from "react";
 import dynamic from "next/dynamic";
-import { loadManifestsWithRegistry } from "@/lib/modules";
 import ReactMarkdown from "react-markdown";
 
 const Monaco = dynamic(() => import("@monaco-editor/react"), { ssr: false });
