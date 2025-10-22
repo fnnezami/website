@@ -166,6 +166,12 @@ export default function AdminModulesPage() {
   const [llmPromptContent, setLlmPromptContent] = useState("");
   const [llmPromptLoading, setLlmPromptLoading] = useState(false);
 
+  // Migrations
+  const [migrationsOpen, setMigrationsOpen] = useState(false);
+  const [migrationsLoading, setMigrationsLoading] = useState(false);
+  const [migrations, setMigrations] = useState<string[]>([]);
+  const [migrationsMsg, setMigrationsMsg] = useState<string>("");
+
   // Handle file tree resizing
   const handleTreeMouseDown = (e: React.MouseEvent) => {
     setIsResizingTree(true);
@@ -177,7 +183,42 @@ export default function AdminModulesPage() {
     setIsResizingDrawer(true);
     e.preventDefault();
   };
+  // List migrations for a module (scan FS via admin API)
+  async function openMigrations(moduleId: string) {
+    setMigrationsOpen(true);
+    setMigrationsLoading(true);
+    setMigrationsMsg("");
+    setMigrations([]);
+    try {
+      const r = await fetch(`/api/admin/modules/migrations?moduleId=${encodeURIComponent(moduleId)}`, { cache: "no-store" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j?.ok === false) throw new Error(j?.error || `List failed (${r.status})`);
+      const files = Array.isArray(j.files) ? j.files : [];
+      setMigrations(files);
+    } catch (e) {
+      setMigrationsMsg(prettyErr(e));
+    } finally {
+      setMigrationsLoading(false);
+    }
+  }
 
+  // Run a specific migration file for a module
+  async function runMigration(moduleId: string, file: string) {
+    if (!file) return;
+    setMigrationsMsg("");
+    try {
+      const r = await fetch(`/api/admin/modules/migrations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ moduleId, file }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j?.ok === false) throw new Error(j?.error || `Run failed (${r.status})`);
+      setMigrationsMsg(`OK: ${file} applied.`);
+    } catch (e) {
+      setMigrationsMsg(prettyErr(e));
+    }
+  }
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingTree) {
@@ -658,9 +699,10 @@ export default function AdminModulesPage() {
             🤖 LLM Prompt
           </SlimBtn>
           {selectedModule && (
-            <SlimBtn onClick={() => openModuleFiles(selectedModule.id)} variant="primary">
-              Edit Files
-            </SlimBtn>
+            <>
+              <SlimBtn onClick={() => openModuleFiles(selectedModule.id)} variant="primary">Edit Files</SlimBtn>
+              <SlimBtn onClick={() => openMigrations(selectedModule.id)} variant="outline">Migrations</SlimBtn>
+            </>
           )}
           <SlimBtn onClick={load}>Refresh</SlimBtn>
           <SlimBtn onClick={() => openLogs()} variant="ghost">
@@ -1075,6 +1117,43 @@ export default function AdminModulesPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Migrations drawer */}
+      {migrationsOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 flex"
+          onClick={(e) => handleOverlayClick(e, () => setMigrationsOpen(false))}
+        >
+          <div className="ml-auto mt-12 h-[70vh] w-full max-w-2xl bg-white shadow-xl p-5 overflow-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-medium text-lg">Migrations for {selectedModule?.id}</div>
+              <button onClick={() => setMigrationsOpen(false)} className="text-sm opacity-70 hover:opacity-100">Close</button>
+            </div>
+
+            {migrationsLoading ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : migrations.length === 0 ? (
+              <p className="text-sm text-gray-500">No .sql files found in this module’s migrations folder.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {migrations.map((f) => (
+                  <li key={f} className="flex items-center justify-between border rounded p-2">
+                    <span>{f}</span>
+                    <button
+                      onClick={() => selectedModule && runMigration(selectedModule.id, f)}
+                      className="text-xs border rounded px-2 py-1"
+                    >
+                      Run
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {migrationsMsg && <div className="mt-3 text-xs rounded border bg-neutral-50 p-2">{migrationsMsg}</div>}
           </div>
         </div>
       )}

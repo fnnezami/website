@@ -1,81 +1,103 @@
-"use client";
-import React, { useEffect, useState } from "react";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export default function ChatAdmin() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [welcome, setWelcome] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
+import { Pool } from "pg";
+import AdminForm from "././AdminForm.client";
+import OpenAI from "openai";
 
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
+type Cfg = {
+  apiKey: string;
+  model: string;
+  systemPrompt: string;
+  knowledge: any;
+};
+type FormState = { ok: boolean | null; message?: string; error?: string };
+
+// Keep a single pool across hot reloads
+const pool: any =
+  (globalThis as any).__chat_pg__ ||
+  new Pool({ connectionString: process.env.DATABASE_URL });
+(globalThis as any).__chat_pg__ = pool;
+
+async function getConfig(): Promise<Cfg> {
+  const { rows } = await pool.query(
+    "SELECT api_key, knowledge_json, system_prompt, model FROM public.chat_settings WHERE id = 1"
+  );
+  const row = rows[0] || {};
+  return {
+    apiKey: row?.api_key || "",
+    knowledge: row?.knowledge_json ?? null,
+    systemPrompt: row?.system_prompt || "",
+    model: row?.model || "gpt-5.1-mini",
+  };
+}
+
+export async function saveAction(_prevState: FormState, formData: FormData): Promise<FormState> {
+  "use server";
+  try {
+    const apiKeyRaw = formData.get("apiKey");
+    const modelRaw = formData.get("model");
+    const promptRaw = formData.get("systemPrompt");
+    const knowledgeRaw = formData.get("knowledge");
+
+    const apiKey =
+      typeof apiKeyRaw === "string" && apiKeyRaw.trim() ? apiKeyRaw.trim() : null;
+    const model =
+      typeof modelRaw === "string" && modelRaw.trim() ? modelRaw.trim() : "gpt-5.1-mini";
+    const systemPrompt = typeof promptRaw === "string" ? promptRaw : "";
+
+    let knowledge: any = null;
+    if (typeof knowledgeRaw === "string" && knowledgeRaw.trim()) {
       try {
-        const res = await fetch("/api/admin/modules/chat/config", { cache: "no-store" });
-        if (!res.ok) throw new Error(await res.text().catch(() => String(res.status)));
-        const j = await res.json();
-        if (!mounted) return;
-        const cfg = j?.config || {};
-        setWelcome(cfg.welcome || "");
-        setApiKey(cfg.apiKey || "");
-      } catch (err: any) {
-        setMessage(String(err?.message || err));
-      } finally {
-        if (mounted) setLoading(false);
+        knowledge = JSON.parse(knowledgeRaw);
+      } catch {
+        return { ok: false, error: "Knowledge must be valid JSON." };
       }
     }
-    load();
-    return () => { mounted = false; };
-  }, []);
 
-  async function save() {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/admin/modules/chat/config", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ config: { welcome: String(welcome), apiKey: String(apiKey) } }),
-      });
-      const j = await res.json();
-      if (!res.ok || j?.ok === false) throw new Error(j?.error || "save failed");
-      setMessage("Saved.");
-    } catch (err: any) {
-      setMessage(String(err?.message || err));
-    } finally {
-      setSaving(false);
-      setTimeout(() => setMessage(null), 3000);
-    }
+    await pool.query(
+      `INSERT INTO public.chat_settings (id, api_key, knowledge_json, system_prompt, model, updated_at)
+       VALUES (1, $1, $2, $3, $4, now())
+       ON CONFLICT (id) DO UPDATE SET
+         api_key = EXCLUDED.api_key,
+         knowledge_json = EXCLUDED.knowledge_json,
+         system_prompt = EXCLUDED.system_prompt,
+         model = EXCLUDED.model,
+         updated_at = now()`,
+      [apiKey, knowledge, systemPrompt, model]
+    );
+
+    return { ok: true, message: "Saved successfully." };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Failed to save." };
   }
+}
 
-  return (
-    <div style={{ padding: 12, maxWidth: 760 }}>
-      <h2 style={{ margin: "0 0 8px 0" }}>Floating Chat — Admin</h2>
-      <p style={{ margin: "0 0 12px 0", color: "#555" }}>Set the greeting users see and an optional API key.</p>
+export async function listModelsAction(apiKeyOverride?: string): Promise<{ ok: boolean; models?: string[]; error?: string }> {
+  "use server";
+  try {
+    const cfg = await getConfig();
+    const apiKey =
+      (apiKeyOverride && apiKeyOverride.trim()) ||
+      cfg.apiKey ||
+      process.env.OPENAI_API_KEY ||
+      "";
+    if (!apiKey) return { ok: false, error: "OpenAI API key is not configured." };
 
-      {loading ? (
-        <div>Loading…</div>
-      ) : (
-        <>
-          <label style={{ display: "block", fontSize: 13, marginBottom: 6 }}>Welcome message</label>
-          <textarea value={welcome} onChange={(e) => setWelcome(e.target.value)} rows={3} style={{ width: "100%", padding: 8, fontSize: 14, borderRadius: 6, border: "1px solid #e6e6e6", marginBottom: 12 }} />
+    const client = new OpenAI({ apiKey });
+    const list = await client.models.list();
+    const names = (list?.data || [])
+      .map((m: any) => m?.id)
+      .filter(Boolean)
+      .sort((a: string, b: string) => a.localeCompare(b));
 
-          <label style={{ display: "block", fontSize: 13, marginBottom: 6 }}>API key (optional)</label>
-          <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} type="password" placeholder="sk-..." style={{ width: "100%", padding: 8, fontSize: 14, borderRadius: 6, border: "1px solid #e6e6e6", marginBottom: 12 }} />
+    return { ok: true, models: names };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || "Failed to list models." };
+  }
+}
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={save} disabled={saving} style={{ padding: "8px 12px", borderRadius: 6, background: "#0b66ff", color: "#fff", border: "none" }}>
-              {saving ? "Saving…" : "Save"}
-            </button>
-            <button onClick={() => { setWelcome(""); setApiKey(""); }} style={{ padding: "8px 12px", borderRadius: 6, border: "1px solid #e6e6e6", background: "#fff" }}>
-              Reset
-            </button>
-          </div>
-
-          {message && <div style={{ marginTop: 12, color: message === "Saved." ? "green" : "crimson" }}>{message}</div>}
-        </>
-      )}
-    </div>
-  );
+export default async function ChatAdmin() {
+  const cfg = await getConfig();
+  return <AdminForm initialCfg={cfg} saveAction={saveAction} listModels={listModelsAction} />;
 }
