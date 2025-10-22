@@ -97,6 +97,7 @@ export async function adminCreatePost(payload: {
   summary?: string | null;
   content: string;
   published?: boolean;
+  archived?: boolean;
   author_email?: string | null;
   share_settings?: Record<string, boolean>;
 }) {
@@ -104,8 +105,8 @@ export async function adminCreatePost(payload: {
   try {
     await ensureSchema(pg);
     const res = await pg.query(
-      `INSERT INTO blog_posts (title, slug, summary, content, published, author_email, share_settings)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+      `INSERT INTO blog_posts (title, slug, summary, content, published, archived, author_email, share_settings)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING id, created_at, updated_at`,
       [
         payload.title,
@@ -113,6 +114,7 @@ export async function adminCreatePost(payload: {
         payload.summary || null,
         payload.content,
         !!payload.published,
+        !!payload.archived,
         payload.author_email || null,
         JSON.stringify(payload.share_settings || {}),
       ]
@@ -130,19 +132,23 @@ export async function adminUpdatePost(id: number, payload: {
   summary?: string | null;
   content: string;
   published?: boolean;
+  archived?: boolean;
   share_settings?: Record<string, boolean>;
 }) {
   const pg = await getPg();
   try {
     await ensureSchema(pg);
     await pg.query(
-      `UPDATE blog_posts SET title=$1, slug=$2, summary=$3, content=$4, published=$5, share_settings=$6, updated_at=now() WHERE id=$7`,
+      `UPDATE blog_posts
+         SET title=$1, slug=$2, summary=$3, content=$4, published=$5, archived=$6, share_settings=$7, updated_at=now()
+       WHERE id=$8`,
       [
         payload.title,
         payload.slug,
         payload.summary || null,
         payload.content,
         !!payload.published,
+        !!payload.archived,
         JSON.stringify(payload.share_settings || {}),
         id,
       ]
