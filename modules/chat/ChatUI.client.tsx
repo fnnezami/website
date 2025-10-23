@@ -16,7 +16,7 @@ export default function ChatUI() {
     const text = input.trim();
     if (!text || pending) return;
 
-    const next = [...messages, { role: "user", content: text }];
+    const next: ChatMsg[] = [...messages, { role: "user" as const, content: text }];
     setMessages(next);
     setInput("");
     setPending(true);

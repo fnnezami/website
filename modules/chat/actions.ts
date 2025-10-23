@@ -43,6 +43,47 @@ function buildSystemContent(systemPrompt: string, knowledge: any): string {
   return `${header}\nKnowledge Base (JSON):\n${kb}`;
 }
 
+function isResponsesModel(id: string) {
+  const m = String(id || "").toLowerCase();
+  return m.startsWith("gpt-5") || m.startsWith("gpt-4.1") || m.startsWith("gpt-4o");
+}
+
+type HistMsg = { role: "user" | "assistant"; content: string };
+
+function toResponsesInput(history: HistMsg[], userText: string, systemPrompt?: string) {
+  const input: Array<{
+    role: "system" | "developer" | "user" | "assistant" | "tool";
+    content: Array<{ type: "text" | "input_text"; text: string }>;
+  }> = [];
+  if (systemPrompt && systemPrompt.trim()) {
+    input.push({ role: "system", content: [{ type: "text", text: systemPrompt }] });
+  }
+  for (const m of history) {
+    input.push({ role: m.role, content: [{ type: "text", text: m.content }] });
+  }
+  input.push({ role: "user", content: [{ type: "input_text", text: userText }] });
+  return input;
+}
+
+function extractFromResponses(j: any): string {
+  if (!j) return "";
+  if (typeof j.output_text === "string" && j.output_text.trim()) return j.output_text;
+  if (Array.isArray(j.output)) {
+    const parts: string[] = [];
+    j.output.forEach((o: any) => {
+      const content = (o && o.content) || [];
+      content.forEach((c: any) => {
+        if (c?.type === "output_text" && c?.text?.value) parts.push(c.text.value);
+        else if (c?.text?.value) parts.push(c.text.value);
+        else if (typeof c?.text === "string") parts.push(c.text);
+      });
+    });
+    if (parts.length) return parts.join("");
+  }
+  if (j?.response?.output_text) return j.response.output_text;
+  return "";
+}
+
 // Call OpenAI using the model saved in settings.
 // For most models, Chat Completions is fine. If you use “gpt-5.*”, Responses API is preferred.
 export async function askOpenAI(messages: Msg[]): Promise<string> {
@@ -52,37 +93,27 @@ export async function askOpenAI(messages: Msg[]): Promise<string> {
 
   const openai = new OpenAI({ apiKey });
 
-  // Prepend system context with KB
+  // Build messages with system + KB
   const systemContent = buildSystemContent(systemPrompt, knowledge);
-  const chatMessages = [
-    { role: "system" as const, content: systemContent },
-    ...messages.map((m) => ({ role: m.role, content: m.content })),
-  ];
 
-  // Prefer Responses API for “gpt-5.*” models, else use Chat Completions
-  const useResponses = /^gpt-5/i.test(model);
-  if (useResponses) {
-    const res = await openai.responses.create({
-      model,
-      input: chatMessages.map((m) => ({ role: m.role, content: m.content })),
-    });
-    // SDK exposes a convenience field for text output
-    // Fallback to manual extraction if needed.
-    // @ts-ignore
-    const text: string = (res as any).output_text ?? (
-      Array.isArray(res.output)
-        ? res.output
-            .flatMap((o: any) => (o?.content || []).map((c: any) => c?.text?.value || ""))
-            .join("")
-        : ""
-    );
-    return text || "";
-  } else {
-    const res = await openai.chat.completions.create({
-      model,
-      messages: chatMessages,
-      temperature: 0.2,
-    });
-    return res.choices?.[0]?.message?.content || "";
+  const chatMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+  chatMessages.push({ role: "system", content: systemContent });
+  for (const m of messages) {
+    if (m.role === "user" || m.role === "assistant" || m.role === "system") {
+      chatMessages.push({ role: m.role, content: m.content });
+    } else if (m.role === "developer") {
+      // Chat Completions doesn’t support 'developer'; map to 'system'
+      chatMessages.push({ role: "system", content: m.content });
+    }
+    // Skip 'tool' here (would require tool_call_id)
   }
+
+  // Use Chat Completions
+  const res = await openai.chat.completions.create({
+    model,
+    messages: chatMessages,
+    temperature: 0.2,
+  });
+
+  return res.choices?.[0]?.message?.content || "(no reply)";
 }
