@@ -112,6 +112,72 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Compatibility aliases for all modules/components (light) */
+:root {
+  /* Used by chat widget, markdown, and misc components */
+  --text-color: var(--foreground);
+  --surface: var(--card);
+  --surface-2: var(--muted);
+  --input-bg: var(--card);
+  --bubble-bg: var(--muted);
+  --border-color: var(--border);
+
+  /* Helpful accents for badges/skills/toggles without changing styles */
+  --badge-bg: var(--secondary);
+  --badge-fg: var(--secondary-foreground);
+  --toggle-track: var(--secondary);
+  --toggle-thumb: var(--card);
+}
+
+/* Dark-mode color scheme only (no style changes) */
+.dark {
+  /* Core tokens already defined above; keeping your look, improving contrast */
+  --background: oklch(0.15 0 0);           /* app bg */
+  --foreground: oklch(0.98 0 0);           /* main text */
+
+  --card: oklch(0.20 0 0);                 /* panels/cards */
+  --card-foreground: var(--foreground);
+
+  --popover: oklch(0.20 0 0);
+  --popover-foreground: var(--foreground);
+
+  /* Primary stays bright for clear CTAs; readable text on top */
+  --primary: oklch(0.92 0 0);
+  --primary-foreground: oklch(0.20 0 0);
+
+  /* Secondary surfaces (lists, chips, skills) */
+  --secondary: oklch(0.26 0 0);
+  --secondary-foreground: var(--foreground);
+
+  /* Muted areas (table rows, subtle blocks) */
+  --muted: oklch(0.24 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+
+  --accent: oklch(0.26 0 0);
+  --accent-foreground: var(--foreground);
+
+  /* Subtle lines/outlines only (no hard borders) */
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.56 0 0);
+
+  /* Sidebar/chart keep your defaults; leave as-is or adjust if needed */
+  /* --sidebar, --chart-1..5 already present */
+
+  /* Compatibility aliases in dark (keeps all elements readable) */
+  --text-color: var(--foreground);   /* used widely in modules */
+  --surface: var(--card);            /* panel surfaces */
+  --surface-2: var(--secondary);     /* secondary surfaces */
+  --input-bg: var(--popover);        /* inputs/textareas */
+  --bubble-bg: var(--muted);         /* chat assistant bubbles */
+  --border-color: var(--border);     /* subtle separators */
+
+  --badge-bg: var(--secondary);
+  --badge-fg: var(--secondary-foreground);
+  --toggle-track: var(--secondary);
+  --toggle-thumb: var(--card);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -134,3 +200,193 @@ pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liber
     border-color: rgb(226 232 240 / 0.6); /* ~ slate-200/60 */
   }
 }
+
+/* Matte glass header + navbar (light mode) */
+:root {
+  --header-glass-bg: color-mix(in oklch, var(--background) 78%, transparent);
+}
+
+@layer components {
+  /* Make the top header sticky, glassy, and without a hard bottom line */
+  header.site-header,
+  header[role="banner"],
+  header:has(> nav) {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--header-glass-bg);
+    backdrop-filter: saturate(160%) blur(10px);
+    -webkit-backdrop-filter: saturate(160%) blur(10px);
+    border-bottom: 0 !important;              /* remove hard line */
+    box-shadow: 0 6px 24px rgb(2 10 40 / 0.06);/* soft depth, not a line */
+  }
+
+  /* Navbar inherits the glass; no bottom border */
+  header nav,
+  nav.site-nav,
+  nav.navbar {
+    background: transparent;
+    border-bottom: 0 !important;
+  }
+
+  /* Fallback if backdrop-filter not supported */
+  @supports not (backdrop-filter: blur(10px)) {
+    header.site-header,
+    header[role="banner"],
+    header:has(> nav) {
+      background: color-mix(in oklab, var(--background) 92%, white);
+    }
+  }
+}
+
+/* Dark-mode color mapping for common light Tailwind backgrounds and borders */
+/* This keeps your current aesthetics; only colors change in dark mode. */
+
+:root.dark {
+  /* Ensure dark scheme is active */
+  color-scheme: dark;
+
+  /* Core tokens */
+  --background: #0b1220;          /* page bg */
+  --foreground: #eaf0ff;          /* text */
+
+  --card: #0f1b34;                /* panels/cards */
+  --card-foreground: var(--foreground);
+
+  --popover: #0f1a30;             /* inputs/popovers */
+  --popover-foreground: var(--foreground);
+
+  --primary: #82aaff;             /* CTAs/links */
+  --primary-foreground: #0b1220;
+
+  --secondary: #122241;           /* secondary surfaces (lists, chips, skills) */
+  --secondary-foreground: var(--foreground);
+
+  --muted: #101c36;               /* subtle areas (rows, inlines) */
+  --muted-foreground: #c7d6ff;
+
+  --accent: #143058;
+  --accent-foreground: var(--foreground);
+
+  --border: rgba(234, 240, 255, 0.12);  /* subtle separators */
+  --input: rgba(234, 240, 255, 0.18);
+  --ring: #658dff;
+
+  /* Compatibility aliases (used by modules/components) */
+  --text-color: var(--foreground);
+  --surface: var(--card);
+  --surface-2: var(--secondary);
+  --input-bg: var(--popover);
+  --bubble-bg: var(--muted);
+  --border-color: var(--border);
+}
+
+/* Header/Nav honor dark colors (colors only) */
+.dark header,
+.dark header.site-header,
+.dark header[role="banner"] {
+  background-color: color-mix(in oklch, var(--background) 86%, transparent) !important;
+  color: var(--foreground) !important;
+}
+.dark header a,
+.dark header button,
+.dark header [role="button"] {
+  color: var(--foreground) !important;
+}
+
+/* Map common light utilities to dark surfaces (inner divs) */
+.dark .bg-white,
+.dark .bg-gray-50, .dark .bg-slate-50, .dark .bg-neutral-50, .dark .bg-zinc-50, .dark .bg-stone-50,
+.dark .bg-gray-100, .dark .bg-slate-100, .dark .bg-neutral-100, .dark .bg-zinc-100, .dark .bg-stone-100 {
+  background-color: var(--card) !important;
+}
+.dark .bg-gray-200, .dark .bg-slate-200, .dark .bg-neutral-200, .dark .bg-zinc-200, .dark .bg-stone-200,
+.dark .bg-gray-300, .dark .bg-slate-300, .dark .bg-neutral-300, .dark .bg-zinc-300, .dark .bg-stone-300 {
+  background-color: var(--secondary) !important;
+}
+
+/* Borders/separators: subtle in dark */
+.dark .border,
+.dark .border-gray-100, .dark .border-gray-200, .dark .border-slate-200,
+.dark .divide-gray-100, .dark .divide-gray-200, .dark .divide-slate-200 {
+  border-color: var(--border) !important;
+}
+
+/* Text utilities -> foreground in dark */
+.dark .text-black,
+.dark .text-gray-700, .dark .text-gray-800, .dark .text-gray-900,
+.dark .text-slate-700, .dark .text-slate-800, .dark .text-slate-900,
+.dark .text-neutral-800, .dark .text-neutral-900 {
+  color: var(--foreground) !important;
+}
+
+/* Buttons (colors only) */
+.dark button,
+.dark .btn,
+.dark [role="button"] {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+}
+.dark .btn-secondary,
+.dark [data-variant="secondary"] {
+  background-color: var(--secondary) !important;
+  color: var(--secondary-foreground) !important;
+}
+
+/* Inputs/controls (colors only) */
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: var(--popover) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: color-mix(in oklab, var(--foreground) 55%, transparent);
+}
+
+/* Toggle colors (keep your switch style) */
+.dark .switch-track,
+.dark [data-role="switch"],
+.dark .toggle-track {
+  background-color: var(--secondary) !important;
+}
+.dark .switch-thumb,
+.dark .toggle-thumb {
+  background-color: var(--card) !important;
+}
+
+/* Labels and small text: high contrast */
+.dark label,
+.dark .label,
+.dark .hint,
+.dark small,
+.dark .help {
+  color: var(--foreground) !important;
+  opacity: 0.98;
+}
+
+/* Skills / badges / chips (colors only) */
+.dark .skill,
+.dark .badge,
+.dark .chip,
+.dark .tag {
+  background-color: var(--secondary) !important;
+  color: var(--foreground) !important;
+}
+
+/* Prose/Markdown (blog slugs, chat markdown) */
+.dark .prose { color: var(--foreground); }
+.dark .prose :where(h1,h2,h3,h4,h5,h6) { color: var(--foreground); }
+.dark .prose :where(code):not(pre code) { background-color: var(--muted); color: var(--foreground); }
+.dark .prose pre { background-color: var(--secondary); color: var(--foreground); }
+.dark .prose table { background-color: var(--card); }
+.dark .prose thead th { background-color: var(--secondary); }
+
+/* Chat widget (colors only) */
+.dark .cw-wrap, .dark .cw-head, .dark .cw-foot { background: var(--card) !important; color: var(--foreground) !important; }
+.dark .cw-body { background: var(--secondary) !important; }
+.dark .cw-input { background: var(--popover) !important; color: var(--foreground) !important; }
+.dark .cw-bubble.assistant { background: var(--muted) !important; color: var(--foreground) !important; }
+.dark .cw-bubble.user { background: var(--primary) !important; color: var(--primary-foreground) !important; }
