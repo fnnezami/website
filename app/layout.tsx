@@ -1,5 +1,6 @@
 // app/layout.tsx
 import "./globals.css";
+import "./theme-overrides.css"; // <- overrides loaded after globals
 import type { Metadata } from "next";
 import ProfileHeader from "@/components/ProfileHeader";
 import Navbar from "@/components/Navbar";
@@ -9,6 +10,10 @@ import FloatingModulesServer from "./components/FloatingModules.server";
 import { loadManifestsWithRegistry } from "@/lib/modules";
 import { createClient } from "@supabase/supabase-js";
 import ThemeToggle from "./components/ThemeToggle.client";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import ThemeEditorWrapper from "../components/ThemeEditorWrapper";
+
 
 export const metadata: Metadata = {
   title: "Farbod Nosrat Nezami",
@@ -51,6 +56,32 @@ export default async function RootLayout({
     pageModules = Array.isArray(all) ? all.filter((m: any) => m.kind === "page" && m.enabled) : [];
   } catch {
     pageModules = [];
+  }
+
+  // Check if user is authenticated via Supabase
+  const jar = await cookies();
+  let isAdmin = false;
+
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return jar.getAll();
+          },
+          setAll() {
+            // no-op in layout
+          },
+        },
+      }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    isAdmin = !!user; // If user exists, they're authenticated
+  } catch {
+    isAdmin = false;
   }
 
   return (
@@ -102,6 +133,7 @@ export default async function RootLayout({
         </main>
 
         <FloatingModulesServer />
+        {isAdmin && <ThemeEditorWrapper />}
       </body>
     </html>
   );
