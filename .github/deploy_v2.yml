@@ -1,0 +1,77 @@
+name: deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
+
+    steps:
+      # 1) get your repo
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) setup node (pick your version)
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # 3) install + build ON GITHUB, not on server
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # 4) package build output to a tarball
+      # adjust paths if your app is not Next.js
+      - name: Create tarball
+        run: |
+          tar czf site.tar.gz .next public package.json package-lock.json next.config.* || true
+
+      # 5) copy tarball to server
+      - name: Upload build to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "site.tar.gz"
+          target: "~/deploy/site.tar.gz"
+
+      # 6) run remote script to unpack & restart
+      - name: Remote deploy via SSH
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_KEY }}
+          command_timeout: 600
+          script: |
+            set -e
+
+            # where you keep the app on the server
+            APP_DIR=/srv/personal-website
+
+            mkdir -p "$APP_DIR"
+            cd "$APP_DIR"
+
+            # unpack what we just uploaded
+            tar xzf ~/deploy/site.tar.gz
+
+            # if you need runtime deps only (and you already have package.json there):
+            # npm ci --omit=dev
+
+            # restart your process manager
+            # adapt this line to your setup (pm2/systemd/docker)
+            pm2 restart personal-website || pm2 start npm --name personal-website -- start
