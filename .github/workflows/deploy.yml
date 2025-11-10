@@ -60,7 +60,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           port: ${{ secrets.SSH_PORT }}
           key: ${{ secrets.SSH_KEY }}
-          command_timeout: 600
+          command_timeout: 600s
           script: |
             set -e
 
