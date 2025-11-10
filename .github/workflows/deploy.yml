@@ -73,10 +73,9 @@ jobs:
             # unpack what we just uploaded
             tar xzf /tmp/deploy/site.tar.gz
 
-            # if you need runtime deps only (and you already have package.json there):
-            # npm ci --omit=dev
+            # if you need runtime deps only:
+            npm ci --omit=dev
 
             # restart your process manager
-            # adapt this line to your setup (pm2/systemd/docker)
             pm2 restart personal-website || pm2 start npm --name personal-website -- start
             rm /tmp/deploy/site.tar.gz
