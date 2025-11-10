@@ -18,5 +18,6 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           port: ${{ secrets.SSH_PORT }}
           key: ${{ secrets.SSH_KEY }}
+          command_timeout: 1200
           script: |
             /usr/local/lib/personal-website/rebuild.sh
