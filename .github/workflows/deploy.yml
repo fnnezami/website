@@ -50,7 +50,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           key: ${{ secrets.SSH_KEY }}
           source: "site.tar.gz"
-          target: "~/deploy/site.tar.gz"
+          target: "/tmp/deploy"
 
       # 6) run remote script to unpack & restart
       - name: Remote deploy via SSH
@@ -71,7 +71,7 @@ jobs:
             cd "$APP_DIR"
 
             # unpack what we just uploaded
-            tar xzf ~/deploy/site.tar.gz
+            tar xzf /tmp/deploy/site.tar.gz
 
             # if you need runtime deps only (and you already have package.json there):
             # npm ci --omit=dev
@@ -79,3 +79,4 @@ jobs:
             # restart your process manager
             # adapt this line to your setup (pm2/systemd/docker)
             pm2 restart personal-website || pm2 start npm --name personal-website -- start
+            rm /tmp/deploy/site.tar.gz
