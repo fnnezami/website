@@ -6,13 +6,13 @@
     <img alt="Live Site" src="https://img.shields.io/badge/site-farbodnezami.me-111827?logo=google-chrome&logoColor=white">
   </a>
   <a href="https://github.com/fnnezami/website/actions/workflows/deploy.yml">
-    <img alt="Build Status" src="https://github.com/<OWNER>/<REPO>/actions/workflows/build.yml/badge.svg">
+    <img alt="Build Status" src="https://github.com/fnnezami/website/actions/workflows/deploy.yml/badge.svg">
   </a>
   <a href="https://nodejs.org/" target="_blank">
-    <img alt="Node Version (dynamic)" src="https://img.shields.io/github/package-json/engines/OWNER/REPO?label=Node&logo=node.js&logoColor=white">
+    <img alt="Node Version (dynamic)" src="https://img.shields.io/github/package-json/engines/fnnezami/website?label=Node&logo=node.js&logoColor=white">
   </a>
   <a href="https://nextjs.org/" target="_blank">
-    <img alt="Next.js Version (dynamic)" src="https://img.shields.io/github/package-json/dependency-version/OWNER/REPO/next?label=Next.js&logo=next.js">
+    <img alt="Next.js Version (dynamic)" src="https://img.shields.io/github/package-json/dependency-version/fnnezami/website/next?label=Next.js&logo=next.js">
   </a>
 </p>
 
