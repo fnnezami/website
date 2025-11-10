@@ -16,6 +16,22 @@ function normalizeHref(href: string) {
   return href.trim().toLowerCase().replace(/\/+$/, "");
 }
 
+function ensureAbsolute(href: string) {
+  const trimmed = href.trim();
+  if (/^(https?:|mailto:|tel:|#)/i.test(trimmed)) return trimmed; // already absolute or special
+  if (/^\/\//.test(trimmed)) return `https:${trimmed}`; // protocol-relative
+  // Common domains without scheme
+  if (/^(www\.|linkedin\.|x\.com|twitter\.|github\.|gitlab\.|medium\.|youtube\.|tiktok\.|facebook\.|instagram\.)/i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  // If it looks like a domain (contains a dot and no spaces)
+  if (/^[^\s]+\.[^\s]+/.test(trimmed) && !trimmed.startsWith("/")) {
+    return `https://${trimmed}`;
+  }
+  // Leave internal relative paths as-is
+  return trimmed;
+}
+
 export default function ProfileHeader({
   name,
   title,
@@ -31,14 +47,15 @@ export default function ProfileHeader({
     const seen = new Set<string>();
     const out: { label: string; href: string; _key: string }[] = [];
     for (const l of links) {
-      const href = (l?.href ?? "").trim();
-      if (!href) continue;
-      const norm = normalizeHref(href);
+      const raw = (l?.href ?? "").trim();
+      if (!raw) continue;
+      const absolute = ensureAbsolute(raw);
+      const norm = normalizeHref(absolute);
       if (seen.has(norm)) continue;
       seen.add(norm);
       out.push({
-        label: (l?.label ?? "").trim() || href,
-        href,
+        label: (l?.label ?? "").trim() || raw,
+        href: absolute,
         _key: norm,
       });
     }

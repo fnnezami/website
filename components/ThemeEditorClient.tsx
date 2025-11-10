@@ -7,6 +7,7 @@ import { useTheme } from "next-themes";
 import { Wand2, Check } from "lucide-react";
 
 type Mode = "light" | "dark";
+type EditTarget = "overrides" | "globals";
 
 // ----------------- helpers -----------------
 function buildCSS(selector: string, light: string, dark: string) {
@@ -158,6 +159,7 @@ export default function ThemeEditorClient() {
   const [mounted, setMounted] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  const [editTarget, setEditTarget] = useState<EditTarget>("overrides");
 
   const [selectedEl, setSelectedEl] = useState<HTMLElement | null>(null);
   const [selector, setSelector] = useState<string>("");
@@ -168,6 +170,9 @@ export default function ThemeEditorClient() {
   const [darkCSS, setDarkCSS] = useState<string>("");
   const [originalLightCSS, setOriginalLightCSS] = useState<string>("");
   const [originalDarkCSS, setOriginalDarkCSS] = useState<string>("");
+
+  const [globalsCSS, setGlobalsCSS] = useState<string>("");
+  const [originalGlobalsCSS, setOriginalGlobalsCSS] = useState<string>("");
 
   const [computedCSS, setComputedCSS] = useState<string>("");
   const [allOverrides, setAllOverrides] = useState<string>("");
@@ -217,6 +222,16 @@ export default function ThemeEditorClient() {
       setAllOverrides(css);
     })();
   }, [mounted]);
+
+  // Load globals CSS when target switches to globals
+  useEffect(() => {
+    if (!mounted || editTarget !== "globals") return;
+    (async () => {
+      const css = await fetch("/admin/api/theme/overrides?target=globals", { cache: "no-store" }).then((r) => r.text());
+      setGlobalsCSS(css);
+      setOriginalGlobalsCSS(css);
+    })();
+  }, [mounted, editTarget]);
 
   // selection mode
   useEffect(() => {
@@ -307,9 +322,9 @@ export default function ThemeEditorClient() {
     }, 1200);
   }
 
-  // live in-memory CSS injection
+  // live in-memory CSS injection (only for overrides)
   useEffect(() => {
-    if (!selector || !liveStyleRef.current) return;
+    if (!selector || !liveStyleRef.current || editTarget !== "overrides") return;
     const parsed = parseExisting(allOverrides);
     parsed.set(selector, { light: lightCSS, dark: darkCSS });
     let out = "";
@@ -317,9 +332,23 @@ export default function ThemeEditorClient() {
       out += buildCSS(sel, val.light || "", val.dark || "");
     });
     liveStyleRef.current.textContent = out;
-  }, [selector, lightCSS, darkCSS, allOverrides]);
+  }, [selector, lightCSS, darkCSS, allOverrides, editTarget]);
 
   async function onSave() {
+    if (editTarget === "globals") {
+      try {
+        setSaveStatus("saving");
+        await fetch("/admin/api/theme/overrides?target=globals", { method: "POST", body: globalsCSS });
+        setOriginalGlobalsCSS(globalsCSS);
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 1200);
+      } catch {
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 1500);
+      }
+      return;
+    }
+
     if (!selector) return;
     try {
       setSaveStatus("saving");
@@ -342,6 +371,13 @@ export default function ThemeEditorClient() {
   }
 
   async function onDiscard() {
+    if (editTarget === "globals") {
+      const css = await fetch("/admin/api/theme/overrides?target=globals", { cache: "no-store" }).then((r) => r.text());
+      setGlobalsCSS(css);
+      setOriginalGlobalsCSS(css);
+      return;
+    }
+
     if (!selector) return;
     const css = await fetch("/admin/api/theme/overrides", { cache: "no-store" }).then((r) => r.text());
     setAllOverrides(css);
@@ -362,7 +398,10 @@ export default function ThemeEditorClient() {
     if (liveStyleRef.current) liveStyleRef.current.textContent = out;
   }
 
-  const hasUnsavedChanges = lightCSS !== originalLightCSS || darkCSS !== originalDarkCSS;
+  const hasUnsavedChanges =
+    editTarget === "globals"
+      ? globalsCSS !== originalGlobalsCSS
+      : lightCSS !== originalLightCSS || darkCSS !== originalDarkCSS;
   const monacoTheme = theme === "dark" ? "vs-dark" : "vs-light";
 
   // final render gating (keeps hook order stable)
@@ -403,7 +442,10 @@ export default function ThemeEditorClient() {
               type="button"
               onClick={() => {
                 if (inspectorOpen) setInspectorOpen(false);
-                else setSelecting(true);
+                else {
+                  setSelecting(true);
+                  setEditTarget("overrides");
+                }
               }}
               style={{
                 width: 46,
@@ -435,7 +477,7 @@ export default function ThemeEditorClient() {
           </div>
 
           {/* Inspector (moveable + resizable) */}
-          {inspectorOpen && selectedEl && (
+          {inspectorOpen && (editTarget === "globals" || selectedEl) && (
             <div
               id="theme-inspector"
               ref={inspectorRef}
@@ -472,26 +514,49 @@ export default function ThemeEditorClient() {
                   borderRadius: "12px 12px 0 0",
                 }}
               >
-                <div style={{ fontWeight: 800, fontSize: 15 }}>&lt;{selector}&gt;</div>
-                {classes.length > 0 && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {classes.map((c) => (
-                      <span
-                        key={c}
-                        style={{
-                          fontSize: 11,
-                          padding: "3px 8px",
-                          borderRadius: 6,
-                          background: "var(--surface)",
-                          border: "1px solid var(--input)",
-                          fontFamily: "monospace",
-                        }}
-                      >
-                        .{c}
-                      </span>
-                    ))}
-                  </div>
+                <select
+                  value={editTarget}
+                  onChange={(e) => setEditTarget(e.target.value as EditTarget)}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    border: "1px solid var(--input)",
+                    background: "var(--surface)",
+                    color: "var(--foreground)",
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="overrides">Element Overrides</option>
+                  <option value="globals">Global CSS</option>
+                </select>
+
+                {editTarget === "overrides" && (
+                  <>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>&lt;{selector}&gt;</div>
+                    {classes.length > 0 && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {classes.map((c) => (
+                          <span
+                            key={c}
+                            style={{
+                              fontSize: 11,
+                              padding: "3px 8px",
+                              borderRadius: 6,
+                              background: "var(--surface)",
+                              border: "1px solid var(--input)",
+                              fontFamily: "monospace",
+                            }}
+                          >
+                            .{c}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
+
                 <button
                   type="button"
                   className="btn-secondary"
@@ -502,65 +567,68 @@ export default function ThemeEditorClient() {
                 </button>
               </div>
 
-              {/* Mode switch (Light/Dark) */}
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: "var(--card)" }}>
-                <label style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 12, opacity: 0.85 }}>Light</span>
-                  <span
-                    style={{
-                      position: "relative",
-                      width: 48,
-                      height: 26,
-                      borderRadius: 999,
-                      background: tab === "dark" ? "var(--primary)" : "var(--input)",
-                      transition: "background .15s",
-                      border: "1px solid var(--input)",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={tab === "dark"}
-                      onChange={(e) => setTab(e.target.checked ? "dark" : "light")}
-                      aria-label="Toggle dark mode editing"
-                      style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }}
-                    />
+              {/* Mode switch (Light/Dark) - only for overrides */}
+              {editTarget === "overrides" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, background: "var(--card)" }}>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 12, opacity: 0.85 }}>Light</span>
                     <span
                       style={{
-                        position: "absolute",
-                        top: 2,
-                        left: tab === "dark" ? 26 : 2,
-                        width: 22,
-                        height: 22,
+                        position: "relative",
+                        width: 48,
+                        height: 26,
                         borderRadius: 999,
-                        background: "var(--card)",
-                        boxShadow: "0 1px 3px rgba(0,0,0,.25)",
-                        transition: "left .15s",
+                        background: tab === "dark" ? "var(--primary)" : "var(--input)",
+                        transition: "background .15s",
+                        border: "1px solid var(--input)",
                       }}
-                    />
-                  </span>
-                  <span style={{ fontSize: 12, opacity: 0.85 }}>Dark</span>
-                </label>
+                    >
+                      <input
+                        type="checkbox"
+                        checked={tab === "dark"}
+                        onChange={(e) => setTab(e.target.checked ? "dark" : "light")}
+                        aria-label="Toggle dark mode editing"
+                        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }}
+                      />
+                      <span
+                        style={{
+                          position: "absolute",
+                          top: 2,
+                          left: tab === "dark" ? 26 : 2,
+                          width: 22,
+                          height: 22,
+                          borderRadius: 999,
+                          background: "var(--card)",
+                          boxShadow: "0 1px 3px rgba(0,0,0,.25)",
+                          transition: "left .15s",
+                        }}
+                      />
+                    </span>
+                    <span style={{ fontSize: 12, opacity: 0.85 }}>Dark</span>
+                  </label>
 
-                <span style={{ fontSize: 12, opacity: 0.8 }}>
-                  Mode: {tab === "dark" ? "Dark" : "Light"} — edits apply live to{" "}
-                  <code style={{ background: "var(--surface)", padding: "2px 6px", borderRadius: 4 }}>&lt;{selector}&gt;</code>
-                </span>
-              </div>
+                  <span style={{ fontSize: 12, opacity: 0.8 }}>
+                    Mode: {tab === "dark" ? "Dark" : "Light"} — edits apply live to{" "}
+                    <code style={{ background: "var(--surface)", padding: "2px 6px", borderRadius: 4 }}>&lt;{selector}&gt;</code>
+                  </span>
+                </div>
+              )}
 
               {/* Editors */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: 0 }}>
                 <div style={{ display: "grid", gridTemplateRows: "auto 1fr", borderRight: "1px solid var(--input)" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, padding: "10px 12px", background: "var(--card)", borderBottom: "1px solid var(--input)" }}>
-                    Your CSS ({tab})
+                    {editTarget === "globals" ? "globals.css (read-only)" : `Your CSS (${tab})`}
                   </div>
                   <div style={{ minHeight: 0, overflow: "hidden" }}>
                     <Editor
                       height="100%"
                       language="css"
-                      value={tab === "light" ? lightCSS : darkCSS}
-                      onChange={(val) => (tab === "light" ? setLightCSS(val || "") : setDarkCSS(val || ""))}
+                      value={editTarget === "globals" ? globalsCSS : tab === "light" ? lightCSS : darkCSS}
+                      onChange={editTarget === "globals" ? undefined : (val) => (tab === "light" ? setLightCSS(val || "") : setDarkCSS(val || ""))}
                       theme={monacoTheme}
                       options={{
+                        readOnly: editTarget === "globals",
                         minimap: { enabled: false },
                         fontSize: 13,
                         lineNumbers: "on",
@@ -575,21 +643,23 @@ export default function ThemeEditorClient() {
                 </div>
                 <div style={{ display: "grid", gridTemplateRows: "auto 1fr" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, padding: "10px 12px", background: "var(--card)", borderBottom: "1px solid var(--input)" }}>
-                    Computed Styles (read-only)
+                    {editTarget === "globals" ? "globals.css (editable)" : "Computed Styles (read-only)"}
                   </div>
                   <div style={{ minHeight: 0, overflow: "hidden" }}>
                     <Editor
                       height="100%"
                       language="css"
-                      value={computedCSS}
+                      value={editTarget === "globals" ? globalsCSS : computedCSS}
+                      onChange={editTarget === "globals" ? (val) => setGlobalsCSS(val || "") : undefined}
                       theme={monacoTheme}
                       options={{
-                        readOnly: true,
+                        readOnly: editTarget !== "globals",
                         minimap: { enabled: false },
-                        fontSize: 12,
-                        lineNumbers: "off",
+                        fontSize: editTarget === "globals" ? 13 : 12,
+                        lineNumbers: editTarget === "globals" ? "on" : "off",
                         scrollBeyondLastLine: false,
                         automaticLayout: true,
+                        tabSize: 2,
                         wordWrap: "on",
                         padding: { top: 8, bottom: 8 },
                       }}

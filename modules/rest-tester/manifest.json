@@ -1,0 +1,10 @@
+{
+  "id": "rest-tester",
+  "slug": "rest-tester",
+  "title": "REST API Tester",
+  "description": "Floating widget for testing REST API endpoints with full customization",
+  "version": "1.0.0",
+  "config": {
+    "widgetPath": "/modules/rest-tester/public/widget.js"
+  }
+}
