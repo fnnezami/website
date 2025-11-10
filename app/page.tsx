@@ -1,4 +1,5 @@
 import { fetchNormalizedResume } from "@/lib/gist";
+import DownloadCvButton from "@/components/DownloadCvButton";
 
 const sectionDefs = [
   { key: "work", label: "Work" },
@@ -27,16 +28,20 @@ export default async function Home() {
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border bg-white p-4">
-        <div className="flex flex-wrap gap-2 border-b">
-          {sectionDefs.map((s) => (
-            <a
-              key={s.key}
-              href={`#sec-${s.key}`}
-              className="px-3 py-2 text-sm rounded-t-lg hover:bg-neutral-100"
-            >
-              {s.label}
-            </a>
-          ))}
+        {/* Nav + Download button */}
+        <div className="flex items-center justify-between gap-3 border-b pb-3">
+          <div className="flex flex-wrap gap-2">
+            {sectionDefs.map((s) => (
+              <a
+                key={s.key}
+                href={`#sec-${s.key}`}
+                className="px-3 py-2 text-sm rounded-t-lg hover:bg-neutral-100"
+              >
+                {s.label}
+              </a>
+            ))}
+          </div>
+          <DownloadCvButton />
         </div>
 
         <div className="pt-4">

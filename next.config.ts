@@ -35,6 +35,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  experimental: {
+    // Keep these as Node externals in RSC/route handlers
+    serverComponentsExternalPackages: [
+      "puppeteer-core",
+      "resumed",
+      "jsonresume-theme-tech",
+      "jsonresume-theme-tech-ger",
+      "@sparticuz/chromium",
+    ],
+  }
 };
 
 export default nextConfig;
