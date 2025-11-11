@@ -1,121 +1,182 @@
 export const runtime = "nodejs";
 
-import { execFile, spawn } from "node:child_process";
-
-function execOnce(bin: string, args: string[]) {
-  return new Promise<string>((resolve, reject) => {
-    execFile(bin, args, { windowsHide: true, timeout: 2000 }, (err, stdout, stderr) => {
-      if (err) return reject(Object.assign(err, { stderr }));
-      resolve(stdout);
-    });
-  });
-}
-async function isPM2Available() {
-  const bins = process.platform === "win32" ? ["pm2.cmd", "pm2"] : ["pm2"];
-  for (const b of bins) {
-    try {
-      await execOnce(b, ["-v"]);
-      return { ok: true, bin: b };
-    } catch (e: any) {
-      if (e?.code === "ENOENT") continue;
-    }
-  }
-  return { ok: false, bin: "" };
-}
+import { spawn, exec } from "node:child_process";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const nameFilter = searchParams.get("name") || "";
-  const idFilter = searchParams.get("id");
-
-  const avail = await isPM2Available();
-  if (!avail.ok) {
-    // Return SSE 200 with a one-shot status message, not 500
-    const stream = new ReadableStream({
-      start(controller) {
-        const enc = new TextEncoder();
-        controller.enqueue(enc.encode(`event: open\ndata: {"ok":false,"reason":"pm2 not available"}\n\n`));
-        controller.enqueue(enc.encode(`data: {"unavailable":true,"msg":"PM2 is not installed or not on PATH"}\n\n`));
-        controller.close();
-      },
-    });
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-      status: 200,
-    });
-  }
-
-  const bin = avail.bin;
 
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
-
-      const args = ["logs", "--json"];
-      if (nameFilter) args.push(nameFilter);
-
-      const child = spawn(bin, args, {
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-        shell: false,
-      });
+      let closed = false;
 
       const write = (obj: any) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-      };
-
-      const onLine = (line: string) => {
-        line = line.trim();
-        if (!line) return;
-        let j: any;
+        if (closed) return; // Don't write if stream is closed
         try {
-          j = JSON.parse(line);
-        } catch {
-          return write({ ts: Date.now(), type: "out", id: -1, name: "", msg: line });
-        }
-        const type = j?.type === "err" ? "err" : "out";
-        const pid = j?.process?.pm_id;
-        const pname = j?.process?.name || "";
-        if (nameFilter && pname !== nameFilter) return;
-        if (idFilter && String(pid) !== String(idFilter)) return;
-        const msg = typeof j?.data === "string" ? j.data : String(j?.data ?? "");
-        write({ ts: Date.now(), type, id: pid, name: pname, msg });
-      };
-
-      const buf: { out: string; err: string } = { out: "", err: "" };
-      const pump = (chunk: Buffer, key: "out" | "err") => {
-        buf[key] += chunk.toString("utf8");
-        let idx: number;
-        while ((idx = buf[key].indexOf("\n")) >= 0) {
-          const line = buf[key].slice(0, idx);
-          buf[key] = buf[key].slice(idx + 1);
-          onLine(line);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        } catch (error) {
+          // Stream is closed, mark as closed to prevent further writes
+          closed = true;
         }
       };
 
-      child.stdout?.on("data", (c) => pump(c as Buffer, "out"));
-      child.stderr?.on("data", (c) => pump(c as Buffer, "err"));
+      const safeClose = () => {
+        if (!closed) {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            // Already closed
+          }
+        }
+      };
 
-      child.on("spawn", () => {
-        controller.enqueue(encoder.encode(`event: open\ndata: {"ok":true}\n\n`));
-      });
-      child.on("error", (err) => {
-        controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: String(err) })}\n\n`));
-        try { controller.close(); } catch {}
-      });
-      child.on("close", () => {
-        try { controller.close(); } catch {}
+      let child: any = null;
+      let connected = false;
+
+      const startPM2Logs = () => {
+        const args = ["logs", "--lines", "50", "--raw"];
+        if (nameFilter) args.push(nameFilter);
+
+        if (process.platform === "win32") {
+          // Use shell execution on Windows
+          const command = `pm2 ${args.join(" ")}`;
+          child = exec(command, { windowsHide: true });
+        } else {
+          // Use spawn on Linux
+          child = spawn("pm2", args, {
+            stdio: ["ignore", "pipe", "pipe"],
+            shell: false,
+          });
+        }
+
+        let hasOutput = false;
+        let lineCount = 0;
+
+        const processLine = (line: string, isError = false) => {
+          if (closed) return; // Don't process if stream is closed
+          
+          line = line.trim();
+          if (!line) return;
+          
+          hasOutput = true;
+          lineCount++;
+          
+          write({ 
+            ts: Date.now(), 
+            type: isError ? "err" : "out", 
+            id: lineCount, 
+            name: nameFilter || "system", 
+            msg: line 
+          });
+        };
+
+        let stdout = "";
+        let stderr = "";
+
+        child.stdout?.on("data", (data: Buffer) => {
+          if (closed) return;
+          
+          stdout += data.toString();
+          const lines = stdout.split('\n');
+          stdout = lines.pop() || "";
+          lines.forEach((line: string) => processLine(line, false));
+        });
+
+        child.stderr?.on("data", (data: Buffer) => {
+          if (closed) return;
+          
+          stderr += data.toString();
+          const lines = stderr.split('\n');
+          stderr = lines.pop() || "";
+          lines.forEach((line: string) => processLine(line, true));
+        });
+
+        child.on("spawn", () => {
+          if (closed) return;
+          
+          if (!connected) {
+            connected = true;
+            controller.enqueue(encoder.encode(`event: open\ndata: {"ok":true}\n\n`));
+            write({ 
+              ts: Date.now(), 
+              type: "out", 
+              id: -1, 
+              name: "system", 
+              msg: `Connected to PM2 logs${nameFilter ? ` for ${nameFilter}` : ""}` 
+            });
+          }
+        });
+
+        child.on("error", (err: Error) => {
+          if (closed) return;
+          
+          if (!connected) {
+            controller.enqueue(encoder.encode(`event: open\ndata: {"ok":false,"reason":"pm2_error"}\n\n`));
+          }
+          write({ 
+            ts: Date.now(), 
+            type: "err", 
+            id: -1, 
+            name: "system", 
+            msg: `PM2 error: ${err.message}` 
+          });
+          safeClose();
+        });
+
+        child.on("close", (code: number) => {
+          if (closed) return;
+          
+          // Process remaining data
+          if (stdout.trim()) processLine(stdout, false);
+          if (stderr.trim()) processLine(stderr, true);
+
+          if (connected) {
+            write({ 
+              ts: Date.now(), 
+              type: "out", 
+              id: -1, 
+              name: "system", 
+              msg: `PM2 logs ended (${lineCount} lines, exit code: ${code})` 
+            });
+          } else if (!hasOutput) {
+            controller.enqueue(encoder.encode(`event: open\ndata: {"ok":false,"reason":"no_output"}\n\n`));
+            write({ 
+              ts: Date.now(), 
+              type: "err", 
+              id: -1, 
+              name: "system", 
+              msg: "PM2 is not available on this machine" 
+            });
+          }
+          safeClose();
+        });
+      };
+
+      // Start PM2 logs
+      startPM2Logs();
+
+      // Handle client disconnect
+      req.signal?.addEventListener("abort", () => {
+        closed = true;
+        if (child) {
+          try { 
+            child.kill(); 
+          } catch {}
+        }
+        safeClose();
       });
 
-      (req as any).signal?.addEventListener?.("abort", () => {
-        try { child.kill(); } catch {}
-        try { controller.close(); } catch {}
-      });
+      // Cleanup on controller cancel
+      return () => {
+        closed = true;
+        if (child) {
+          try { 
+            child.kill(); 
+          } catch {}
+        }
+      };
     },
   });
 

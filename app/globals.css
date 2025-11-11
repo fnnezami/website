@@ -241,7 +241,25 @@ pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liber
 
 /* Dark-mode color mapping for common light Tailwind backgrounds and borders */
 /* This keeps your current aesthetics; only colors change in dark mode. */
+:root {
+  /* Log colors for light mode */
+  --log-bg: #f8fafc;
+  --log-text: #1e293b;
+  --log-time: #3b82f6;
+  --log-error: #dc2626;
+  --log-success: #059669;
+  --log-meta: #6b7280;
+}
 
+.dark {
+  /* Log colors for dark mode */
+  --log-bg: #0f172a;
+  --log-text: #e2e8f0;
+  --log-time: #60a5fa;
+  --log-error: #f87171;
+  --log-success: #34d399;
+  --log-meta: #9ca3af;
+}
 :root.dark {
   /* Ensure dark scheme is active */
   color-scheme: dark;

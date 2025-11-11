@@ -300,23 +300,30 @@ export default function MonitorPage() {
           style={{
             height: 340,
             overflow: "auto",
-            background: "var(--surface-2, #0b1020)",
-            color: "#e8eefc",
+            background: "var(--log-bg, #f8fafc)",
+            color: "var(--log-text, #1e293b)",
             borderRadius: 8,
             padding: 10,
             margin: 0,
-            border: "1px solid var(--border-color, #1f2a44)",
+            border: "1px solid var(--border-color, #e2e8f0)",
             whiteSpace: "pre-wrap",
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
           }}
         >
           {logs.map((l, i) => {
             const ts = new Date(l.ts).toISOString().split("T")[1].replace("Z", "");
-            const color = l.type === "err" ? "#ffb4b4" : "#9fe7a4";
+            // Better colors for both light and dark modes
+            const timeColor = "var(--log-time, #3b82f6)"; // Blue for timestamps
+            const errorColor = "var(--log-error, #dc2626)"; // Red for errors
+            const successColor = "var(--log-success, #059669)"; // Green for success/output
+            const metaColor = "var(--log-meta, #6b7280)"; // Gray for metadata
+            const logTypeColor = l.type === "err" ? errorColor : successColor;
+            
             return (
               <span key={i} style={{ display: "block" }}>
-                <span style={{ color: "#7aa2f7" }}>[{ts}]</span>{" "}
-                <span style={{ color }}>{l.type.toUpperCase()}</span>{" "}
-                <span style={{ color: "#a3aed0" }}>{l.name}({l.id})</span>: {l.msg.replace(/\r?\n$/, "")}
+                <span style={{ color: timeColor }}>[{ts}]</span>{" "}
+                <span style={{ color: logTypeColor, fontWeight: 600 }}>{l.type.toUpperCase()}</span>{" "}
+                <span style={{ color: metaColor }}>{l.name}({l.id})</span>: {l.msg.replace(/\r?\n$/, "")}
               </span>
             );
           })}
