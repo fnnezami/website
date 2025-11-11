@@ -12,9 +12,7 @@ export async function GET(req: Request) {
 
     const { data, error } = await supabase
       .from("analytics_events")
-      .select(
-        "ts,path,entity_type,entity_id,referrer_host,ip_country,ip_region,ip_city,ip_company,ip_org,client_id"
-      )
+      .select("ts,path,entity_type,entity_id,referrer_host,ip_country,ip_region,ip_city,ip_company,ip_org,client_id")
       .order("ts", { ascending: false })
       .limit(limit);
 

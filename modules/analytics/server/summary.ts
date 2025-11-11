@@ -10,40 +10,38 @@ export async function GET(req: Request) {
     const { sinceSQL } = parseRange(url.searchParams.get("range"));
     const supabase = supabaseAdmin();
 
-    // Try RPC first
     const rpc = await supabase.rpc("analytics_summary", { p_since: sinceSQL });
     if (!rpc.error && rpc.data) {
       return NextResponse.json({ ok: true, data: rpc.data?.[0] || { views: 0, unique_clients: 0 } });
     }
 
-    // Fallback: aggregate in JS
-    const since = (() => {
-      const now = new Date();
-      if (sinceSQL.includes("1 day")) return new Date(now.getTime() - 24 * 3600e3);
-      if (sinceSQL.includes("30 days")) return new Date(now.getTime() - 30 * 24 * 3600e3);
-      if (sinceSQL.includes("90 days")) return new Date(now.getTime() - 90 * 24 * 3600e3);
-      return new Date(now.getTime() - 7 * 24 * 3600e3);
-    })();
+    const now = new Date();
+    const since =
+      sinceSQL === "1 day"
+        ? new Date(now.getTime() - 24 * 3600e3)
+        : sinceSQL === "30 days"
+        ? new Date(now.getTime() - 30 * 24 * 3600e3)
+        : sinceSQL === "90 days"
+        ? new Date(now.getTime() - 90 * 24 * 3600e3)
+        : new Date(now.getTime() - 7 * 24 * 3600e3);
     const sinceISO = since.toISOString();
 
-    // Total views
-    const total = await supabase
-      .from("analytics_events")
-      .select("*", { head: true, count: "exact" })
-      .gte("ts", sinceISO);
-    const views = total.count || 0;
-
-    // Unique clients (fetch up to 10k rows; tune if needed)
+    const total = await supabase.from("analytics_events").select("*", { head: true, count: "exact" }).gte("ts", sinceISO);
+    if (total.error) throw total.error;
     const uniq = await supabase
       .from("analytics_events")
       .select("client_id")
       .not("client_id", "is", null)
       .gte("ts", sinceISO)
       .range(0, 9999);
-    const unique_clients = new Set((uniq.data || []).map((r: any) => r.client_id)).size;
+    if (uniq.error) throw uniq.error;
 
-    return NextResponse.json({ ok: true, data: { views, unique_clients } });
+    return NextResponse.json({
+      ok: true,
+      data: { views: total.count || 0, unique_clients: new Set((uniq.data || []).map((r: any) => r.client_id)).size },
+    });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message || "summary failed" }, { status: 400 });
+    const msg = e?.message || "summary failed";
+    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
   }
 }

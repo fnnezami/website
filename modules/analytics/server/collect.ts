@@ -6,14 +6,14 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function getClientIp(req: Request) {
-  const headers = req.headers;
-  const xff = headers.get("x-forwarded-for");
+  const h = req.headers;
+  const xff = h.get("x-forwarded-for"); // may contain multiple, take first
   if (xff) return xff.split(",")[0].trim();
-  const cf = headers.get("cf-connecting-ip");
+  const cf = h.get("cf-connecting-ip");
   if (cf) return cf.trim();
-  const xr = headers.get("x-real-ip");
+  const xr = h.get("x-real-ip");
   if (xr) return xr.trim();
-  const xc = headers.get("x-client-ip");
+  const xc = h.get("x-client-ip");
   if (xc) return xc.trim();
   return "";
 }
@@ -23,7 +23,6 @@ function isAdminRequest(req: Request, path: string) {
   const roleHeader = req.headers.get("x-user-role");
   if (roleHeader && roleHeader.toLowerCase() === "admin") return true;
   const cookie = req.headers.get("cookie") || "";
-  // Adjust patterns for your auth implementation
   if (/role=admin/i.test(cookie)) return true;
   if (/admin_session=1/.test(cookie)) return true;
   return false;
@@ -38,11 +37,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: "admin" });
     }
 
-    // Dev-only override for local testing
-    let ip = getClientIp(req);
-    if (process.env.NODE_ENV !== "production" && !ip && body.ip) {
-      ip = String(body.ip);
-    }
+    // ALWAYS prefer explicit IP if provided; otherwise use headers
+    const ip = body?.ip ? String(body.ip) : getClientIp(req);
 
     const salt = process.env.ANALYTICS_SALT || "";
     const ipHash = hashIp(ip, salt);
@@ -50,13 +46,7 @@ export async function POST(req: Request) {
 
     const ua = req.headers.get("user-agent") || "";
     const ref = body.referrer || req.headers.get("referer") || "";
-    const refHost = (() => {
-      try {
-        return ref ? new URL(ref).host : null;
-      } catch {
-        return null;
-      }
-    })();
+    const refHost = (() => { try { return ref ? new URL(ref).host : null; } catch { return null; } })();
 
     const row = {
       ts: new Date().toISOString(),
@@ -81,13 +71,9 @@ export async function POST(req: Request) {
 
     const { error } = await supabase.from("analytics_events").insert(row);
     if (error) {
-      const hint =
-        (error as any)?.code === "42P01"
-          ? "Table analytics_events missing (run migrations)."
-          : "Insert failed.";
+      const hint = (error as any)?.code === "42P01" ? "Table analytics_events missing. Run migrations." : "Insert failed.";
       throw new Error(`${error.message || "insert failed"} (${hint})`);
     }
-
     return NextResponse.json({ ok: true, enriched: !!geo });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message || "collect failed" }, { status: 400 });

@@ -11,10 +11,8 @@ export async function GET(req: Request) {
     const entityType = url.searchParams.get("entityType");
     const entityId = url.searchParams.get("entityId");
     const limit = Number(url.searchParams.get("limit") || "20");
-
     const supabase = supabaseAdmin();
 
-    // Try RPC first
     const rpc = await supabase.rpc("analytics_top_paths", {
       p_since: sinceSQL,
       p_entity_type: entityType && entityType !== "all" ? entityType : null,
@@ -25,25 +23,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, data: rpc.data || [] });
     }
 
-    // Fallback: aggregate in JS
-    const since = (() => {
-      const now = new Date();
-      if (sinceSQL.includes("1 day")) return new Date(now.getTime() - 24 * 3600e3);
-      if (sinceSQL.includes("30 days")) return new Date(now.getTime() - 30 * 24 * 3600e3);
-      if (sinceSQL.includes("90 days")) return new Date(now.getTime() - 90 * 24 * 3600e3);
-      return new Date(now.getTime() - 7 * 24 * 3600e3);
-    })();
+    const now = new Date();
+    const since =
+      sinceSQL === "1 day"
+        ? new Date(now.getTime() - 24 * 3600e3)
+        : sinceSQL === "30 days"
+        ? new Date(now.getTime() - 30 * 24 * 3600e3)
+        : sinceSQL === "90 days"
+        ? new Date(now.getTime() - 90 * 24 * 3600e3)
+        : new Date(now.getTime() - 7 * 24 * 3600e3);
     const sinceISO = since.toISOString();
 
-    let q = supabase
-      .from("analytics_events")
-      .select("path, entity_type, entity_id")
-      .gte("ts", sinceISO)
-      .range(0, 9999);
-
+    let q = supabase.from("analytics_events").select("path, entity_type, entity_id").gte("ts", sinceISO).range(0, 9999);
     if (entityType && entityType !== "all") q = q.eq("entity_type", entityType);
     if (entityId) q = q.eq("entity_id", entityId);
-
     const { data, error } = await q;
     if (error) throw error;
 
@@ -54,7 +47,6 @@ export async function GET(req: Request) {
       cur.views += 1;
       map.set(key, cur);
     }
-
     const rows = Array.from(map.values()).sort((a, b) => b.views - a.views).slice(0, Number.isFinite(limit) ? limit : 20);
     return NextResponse.json({ ok: true, data: rows });
   } catch (e: any) {

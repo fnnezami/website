@@ -18,6 +18,15 @@ type Recent = {
   ip_org: string | null;
   client_id: string | null;
 };
+type GeoPoint = {
+  lat: number;
+  lon: number;
+  count: number;
+  topCountries: { value: string; count: number }[];
+  topCities: { value: string; count: number }[];
+  topCompanies: { value: string; count: number }[];
+};
+type CountryCount = { country: string; count: number };
 
 const ranges = [
   { v: "24h", label: "24h" },
@@ -35,6 +44,10 @@ export default function AnalyticsAdmin() {
   const [top, setTop] = useState<TopPath[]>([]);
   const [series, setSeries] = useState<Point[]>([]);
   const [recent, setRecent] = useState<Recent[]>([]);
+  // Add geo state
+  const [geoPoints, setGeoPoints] = useState<GeoPoint[]>([]);
+  const [geoUnique, setGeoUnique] = useState<number>(0);
+  const [countries, setCountries] = useState<CountryCount[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -50,18 +63,26 @@ export default function AnalyticsAdmin() {
           .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
           .join("&");
 
-      const [s, t, ts, rv] = await Promise.all([
+      // Add geo to the Promise.all
+      const [s, t, ts, rv, g] = await Promise.all([
         fetch(`/api/modules/analytics/summary?${qs({ range })}`).then((r) => r.json()),
         fetch(`/api/modules/analytics/top?${qs({ range, entityType, entityId, limit: 20 })}`).then((r) => r.json()),
         fetch(`/api/modules/analytics/timeseries?${qs({ range, bucket, entityType, entityId })}`).then((r) => r.json()),
         fetch(`/api/modules/analytics/recent?limit=50`).then((r) => r.json()),
+        fetch(`/api/modules/analytics/geo?${qs({ range })}`).then((r) => r.json()),
       ]);
 
-      if (!s.ok || !t.ok || !ts.ok || !rv.ok) throw new Error(s.error || t.error || ts.error || rv.error || "Load failed");
+      if (!s.ok || !t.ok || !ts.ok || !rv.ok || !g.ok)
+        throw new Error(s.error || t.error || ts.error || rv.error || g.error || "Load failed");
+
       setSummary(s.data);
       setTop(t.data);
       setSeries(ts.data);
       setRecent(rv.data);
+      // Set geo data
+      setGeoPoints(g.data?.points || []);
+      setGeoUnique(g.data?.unique || 0);
+      setCountries(g.data?.countries || []);
     } catch (e: any) {
       setErr(e.message || "Failed to load");
     } finally {
@@ -76,6 +97,7 @@ export default function AnalyticsAdmin() {
 
   return (
     <div className="space-y-6">
+      {/* filters row */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <label className="text-sm text-neutral-600">Range</label>
@@ -123,6 +145,19 @@ export default function AnalyticsAdmin() {
         {err && <div className="text-sm text-red-600">{err}</div>}
       </div>
 
+      {/* NEW: Unique visitors map at the top */}
+      <div className="rounded-lg border bg-white p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-sm font-medium">Unique visitors map ({range})</div>
+          <div className="text-sm text-neutral-600">
+            Unique: {geoUnique || "—"}
+            {countries?.[0] ? ` • Top country: ${countries[0].country} (${countries[0].count})` : ""}
+          </div>
+        </div>
+        <WorldMap points={geoPoints} />
+      </div>
+
+      {/* existing cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="rounded-lg border bg-white p-4">
           <div className="text-sm text-neutral-500">Total Views</div>
@@ -140,11 +175,13 @@ export default function AnalyticsAdmin() {
         </div>
       </div>
 
+      {/* existing timeseries */}
       <div className="rounded-lg border bg-white p-4">
         <div className="mb-2 text-sm font-medium">Views over time</div>
         <TimeseriesChart points={series} />
       </div>
 
+      {/* existing top paths */}
       <div className="rounded-lg border bg-white p-4">
         <div className="mb-2 text-sm font-medium">Top paths</div>
         <div className="overflow-x-auto">
@@ -182,6 +219,7 @@ export default function AnalyticsAdmin() {
         </div>
       </div>
 
+      {/* existing recent visitors */}
       <div className="rounded-lg border bg-white p-4">
         <div className="mb-2 text-sm font-medium">Recent visitors</div>
         <div className="overflow-x-auto">
@@ -249,6 +287,125 @@ function TimeseriesChart({ points }: { points: Point[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Add lazy loader at top (after imports)
+let _maplibre: any = null;
+async function loadMapLibre() {
+  if (_maplibre) return _maplibre;
+  const mod = await import("maplibre-gl");
+  _maplibre = mod.default || mod;
+  // Inject CSS once
+  if (!document.getElementById("__maplibre_css")) {
+    const link = document.createElement("link");
+    link.id = "__maplibre_css";
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/maplibre-gl@3.5.0/dist/maplibre-gl.css";
+    document.head.appendChild(link);
+  }
+  return _maplibre;
+}
+
+// Replace existing WorldMap implementation with this:
+function WorldMap({ points }: { points: GeoPoint[] }) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const mapRef = React.useRef<any | null>(null);
+  const markersRef = React.useRef<any[]>([]);
+  const popupRef = React.useRef<any | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!containerRef.current || mapRef.current) return;
+      const maplibre = await loadMapLibre();
+      if (cancelled) return;
+      const map = new maplibre.Map({
+        container: containerRef.current,
+        style: "https://demotiles.maplibre.org/style.json",
+        center: [0, 20],
+        zoom: 1.4,
+      });
+      map.addControl(new maplibre.NavigationControl({ visualizePitch: true }), "top-right");
+      map.addControl(new maplibre.AttributionControl({ compact: true }), "bottom-right");
+      mapRef.current = map;
+      popupRef.current = new maplibre.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
+    })();
+    return () => {
+      cancelled = true;
+      for (const m of markersRef.current) m.remove();
+      markersRef.current = [];
+      popupRef.current?.remove();
+      popupRef.current = null;
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const map = mapRef.current;
+    const maplibre = _maplibre;
+    if (!map || !maplibre) return;
+
+    // Clear old markers
+    for (const m of markersRef.current) m.remove();
+    markersRef.current = [];
+
+    const max = Math.max(1, ...points.map((p) => p.count || 0));
+    const bounds = new maplibre.LngLatBounds();
+
+    for (const p of points) {
+      if (typeof p.lat !== "number" || typeof p.lon !== "number") continue;
+
+      const el = document.createElement("div");
+      const size = 12 + (p.count / max) * 18;
+      el.style.cssText = `
+        width:${size}px;height:${size}px;
+        background:rgba(15,23,42,.8);
+        border:2px solid #fff;
+        border-radius:50%;
+        box-shadow:0 1px 4px rgba(0,0,0,.35);
+        cursor:pointer;
+      `;
+
+      const html = `
+        <div style="font-size:12px;line-height:1.3;">
+          <div style="font-weight:600;margin-bottom:4px;">Visitors: ${p.count}</div>
+          ${p.topCountries?.length ? `<div><span style="color:#6b7280">Countries:</span> ${p.topCountries.map(c => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
+          ${p.topCities?.length ? `<div><span style="color:#6b7280">Cities:</span> ${p.topCities.map(c => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
+          ${p.topCompanies?.length ? `<div><span style="color:#6b7280">Companies:</span> ${p.topCompanies.map(c => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
+          <div style="color:#9ca3af;margin-top:4px;">Lat ${p.lat.toFixed(2)} · Lon ${p.lon.toFixed(2)}</div>
+        </div>
+      `;
+
+      el.onmouseenter = () => {
+        el.style.background = "rgba(0,0,0,0.9)";
+        popupRef.current?.setLngLat([p.lon, p.lat]).setHTML(html).addTo(map);
+      };
+      el.onmouseleave = () => {
+        el.style.background = "rgba(15,23,42,0.8)";
+        popupRef.current?.remove();
+      };
+
+      const marker = new maplibre.Marker({ element: el, anchor: "center" })
+        .setLngLat([p.lon, p.lat])
+        .addTo(map);
+      markersRef.current.push(marker);
+      bounds.extend([p.lon, p.lat]);
+    }
+
+    if (!bounds.isEmpty()) {
+      map.fitBounds(bounds, { padding: 40, maxZoom: 4, duration: 400 });
+    }
+  }, [points]);
+
+  return (
+    <div className="relative">
+      <div ref={containerRef} className="h-[400px] w-full rounded border overflow-hidden" />
+      <div className="absolute bottom-2 left-2 bg-white/80 backdrop-blur px-2 py-1 rounded text-[11px] shadow">
+        Hover markers for details • Drag • Scroll to zoom
+      </div>
     </div>
   );
 }

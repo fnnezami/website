@@ -1,4 +1,6 @@
 -- Tables
+create extension if not exists pgcrypto;
+
 create table if not exists public.analytics_events (
   id uuid primary key default gen_random_uuid(),
   ts timestamptz not null default now(),
