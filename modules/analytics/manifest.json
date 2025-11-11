@@ -1,0 +1,10 @@
+{
+  "id": "analytics",
+  "slug": "analytics",
+  "title": "Site Analytics",
+  "description": "Tracks and visualizes views for pages, blogs, and projects.",
+  "version": "1.0.0",
+  "config": {
+    "pagePath": "/modules/analytics/public"
+  }
+}
