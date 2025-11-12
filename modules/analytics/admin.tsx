@@ -16,12 +16,14 @@ type Recent = {
   ip_city: string | null;
   ip_company: string | null;
   ip_org: string | null;
+  ip_is_private: boolean | null;
   client_id: string | null;
 };
 type GeoPoint = {
   lat: number;
   lon: number;
   count: number;
+  is_private: boolean;
   topCountries: { value: string; count: number }[];
   topCities: { value: string; count: number }[];
   topCompanies: { value: string; count: number }[];
@@ -39,6 +41,7 @@ export default function AnalyticsAdmin() {
   const [range, setRange] = useState("7d");
   const [entityType, setEntityType] = useState<string>("all");
   const [entityId, setEntityId] = useState<string>("");
+  const [includePrivate, setIncludePrivate] = useState<boolean>(true);
 
   const [summary, setSummary] = useState<Summary | null>(null);
   const [top, setTop] = useState<TopPath[]>([]);
@@ -53,6 +56,16 @@ export default function AnalyticsAdmin() {
 
   const bucket = useMemo(() => (range === "24h" ? "hour" : "day"), [range]);
 
+  // Filter geo points based on private IP toggle
+  const filteredGeoPoints = useMemo(() => {
+    return includePrivate ? geoPoints : geoPoints.filter((p) => !p.is_private);
+  }, [geoPoints, includePrivate]);
+
+  // Filter recent visits based on private IP toggle
+  const filteredRecent = useMemo(() => {
+    return includePrivate ? recent : recent.filter((r) => !r.ip_is_private);
+  }, [recent, includePrivate]);
+
   async function load() {
     setLoading(true);
     setErr(null);
@@ -63,17 +76,26 @@ export default function AnalyticsAdmin() {
           .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
           .join("&");
 
-      // Add geo to the Promise.all
+      // Add includePrivate parameter to API calls
       const [s, t, ts, rv, g] = await Promise.all([
-        fetch(`/api/modules/analytics/summary?${qs({ range })}`).then((r) => r.json()),
-        fetch(`/api/modules/analytics/top?${qs({ range, entityType, entityId, limit: 20 })}`).then((r) => r.json()),
-        fetch(`/api/modules/analytics/timeseries?${qs({ range, bucket, entityType, entityId })}`).then((r) => r.json()),
-        fetch(`/api/modules/analytics/recent?limit=50`).then((r) => r.json()),
-        fetch(`/api/modules/analytics/geo?${qs({ range })}`).then((r) => r.json()),
+        fetch(`/api/modules/analytics/summary?${qs({ range, includePrivate })}`).then((r) => r.json()),
+        fetch(`/api/modules/analytics/top?${qs({ range, entityType, entityId, limit: 20, includePrivate })}`).then((r) => r.json()),
+        fetch(`/api/modules/analytics/timeseries?${qs({ range, bucket, entityType, entityId, includePrivate })}`).then((r) => r.json()),
+        fetch(`/api/modules/analytics/recent?limit=50&${qs({ includePrivate })}`).then((r) => r.json()),
+        fetch(`/api/modules/analytics/geo?${qs({ range, includePrivate })}`).then((r) => r.json()),
       ]);
 
       if (!s.ok || !t.ok || !ts.ok || !rv.ok || !g.ok)
         throw new Error(s.error || t.error || ts.error || rv.error || g.error || "Load failed");
+
+      // Add debug logging
+      console.log("Geo API response:", g);
+      console.log("All geo points:", g.data?.points);
+      console.log("Points with Berlin or DE:", g.data?.points?.filter((p: any) => 
+        (p.lat > 52 && p.lat < 53 && p.lon > 13 && p.lon < 14) || // Berlin coords
+        JSON.stringify(p).toLowerCase().includes('berlin') ||
+        JSON.stringify(p).toLowerCase().includes('germany')
+      ));
 
       setSummary(s.data);
       setTop(t.data);
@@ -93,7 +115,7 @@ export default function AnalyticsAdmin() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range, entityType, entityId]);
+  }, [range, entityType, entityId, includePrivate]);
 
   return (
     <div className="space-y-6">
@@ -135,6 +157,19 @@ export default function AnalyticsAdmin() {
           />
         </div>
 
+        {/* Private IP Toggle */}
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includePrivate}
+              onChange={(e) => setIncludePrivate(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300"
+            />
+            <span className="text-sm text-neutral-600">Include private IPs</span>
+          </label>
+        </div>
+
         <button
           onClick={load}
           className="px-3 py-2 text-sm rounded-md bg-black text-white"
@@ -145,16 +180,22 @@ export default function AnalyticsAdmin() {
         {err && <div className="text-sm text-red-600">{err}</div>}
       </div>
 
-      {/* NEW: Unique visitors map at the top */}
+      {/* Unique visitors map */}
       <div className="rounded-lg border bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
-          <div className="text-sm font-medium">Unique visitors map ({range})</div>
+          <div className="text-sm font-medium">
+            Visitor locations ({range})
+            {!includePrivate && <span className="text-neutral-500 ml-2">(public IPs only)</span>}
+          </div>
           <div className="text-sm text-neutral-600">
             Unique: {geoUnique || "—"}
             {countries?.[0] ? ` • Top country: ${countries[0].country} (${countries[0].count})` : ""}
+            <span className="ml-2 text-xs">
+              Showing: {filteredGeoPoints.length}/{geoPoints.length} locations
+            </span>
           </div>
         </div>
-        <WorldMap points={geoPoints} />
+        <WorldMap points={filteredGeoPoints} />
       </div>
 
       {/* existing cards */}
@@ -219,9 +260,14 @@ export default function AnalyticsAdmin() {
         </div>
       </div>
 
-      {/* existing recent visitors */}
+      {/* recent visitors */}
       <div className="rounded-lg border bg-white p-4">
-        <div className="mb-2 text-sm font-medium">Recent visitors</div>
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-sm font-medium">Recent visitors</div>
+          <div className="text-xs text-neutral-500">
+            Showing: {filteredRecent.length}/{recent.length} visits
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
@@ -231,17 +277,19 @@ export default function AnalyticsAdmin() {
                 <th className="py-2 px-3">Country</th>
                 <th className="py-2 px-3">City/Region</th>
                 <th className="py-2 px-3">Company/Org</th>
+                <th className="py-2 px-3">Type</th>
                 <th className="py-2 px-3">Client</th>
               </tr>
             </thead>
             <tbody>
-              {recent.map((r, i) => {
+              {filteredRecent.map((r, i) => {
                 const when = new Date(r.ts).toLocaleString();
                 const org = r.ip_company || r.ip_org || "—";
                 const cr =
                   r.ip_city || r.ip_region
                     ? `${r.ip_city || ""}${r.ip_city && r.ip_region ? ", " : ""}${r.ip_region || ""}`
                     : "—";
+                const ipType = r.ip_is_private ? "Private" : "Public";
                 return (
                   <tr key={i} className="border-b last:border-0">
                     <td className="py-2 pr-3 whitespace-nowrap">{when}</td>
@@ -249,13 +297,24 @@ export default function AnalyticsAdmin() {
                     <td className="py-2 px-3">{r.ip_country || "—"}</td>
                     <td className="py-2 px-3">{cr}</td>
                     <td className="py-2 px-3">{org}</td>
+                    <td className="py-2 px-3">
+                      <span
+                        className={`px-1.5 py-0.5 text-xs rounded ${
+                          r.ip_is_private
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-green-100 text-green-800"
+                        }`}
+                      >
+                        {ipType}
+                      </span>
+                    </td>
                     <td className="py-2 px-3">{r.client_id?.slice(0, 8) || "—"}</td>
                   </tr>
                 );
               })}
-              {!recent.length && (
+              {!filteredRecent.length && (
                 <tr>
-                  <td className="py-4 text-neutral-500" colSpan={6}>
+                  <td className="py-4 text-neutral-500" colSpan={7}>
                     No data
                   </td>
                 </tr>
@@ -308,7 +367,7 @@ async function loadMapLibre() {
   return _maplibre;
 }
 
-// Replace existing WorldMap implementation with this:
+// Updated WorldMap with private IP styling
 function WorldMap({ points }: { points: GeoPoint[] }) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const mapRef = React.useRef<any | null>(null);
@@ -348,6 +407,13 @@ function WorldMap({ points }: { points: GeoPoint[] }) {
     const maplibre = _maplibre;
     if (!map || !maplibre) return;
 
+    // Add debug logging for WorldMap
+    console.log("Rendering points on map:", points);
+    console.log("Berlin/Germany points:", points.filter((p: GeoPoint) => 
+      (p.lat > 52 && p.lat < 53 && p.lon > 13 && p.lon < 14) ||
+      JSON.stringify(p).toLowerCase().includes('berlin')
+    ));
+
     // Clear old markers
     for (const m of markersRef.current) m.remove();
     markersRef.current = [];
@@ -360,31 +426,44 @@ function WorldMap({ points }: { points: GeoPoint[] }) {
 
       const el = document.createElement("div");
       const size = 12 + (p.count / max) * 18;
+
+      // Different styles for private vs public IPs
+      const isPrivate = p.is_private;
+      const bgColor = isPrivate ? "rgba(245, 158, 11, 0.8)" : "rgba(15, 23, 42, 0.8)"; // amber for private, dark for public
+      const borderColor = isPrivate ? "#f59e0b" : "#fff";
+
       el.style.cssText = `
         width:${size}px;height:${size}px;
-        background:rgba(15,23,42,.8);
-        border:2px solid #fff;
+        background:${bgColor};
+        border:2px solid ${borderColor};
         border-radius:50%;
         box-shadow:0 1px 4px rgba(0,0,0,.35);
         cursor:pointer;
+        ${isPrivate ? "border-style: dashed;" : ""}
       `;
 
+      const ipTypeLabel = isPrivate ? "Private Network" : "Public";
       const html = `
         <div style="font-size:12px;line-height:1.3;">
-          <div style="font-weight:600;margin-bottom:4px;">Visitors: ${p.count}</div>
-          ${p.topCountries?.length ? `<div><span style="color:#6b7280">Countries:</span> ${p.topCountries.map(c => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
-          ${p.topCities?.length ? `<div><span style="color:#6b7280">Cities:</span> ${p.topCities.map(c => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
-          ${p.topCompanies?.length ? `<div><span style="color:#6b7280">Companies:</span> ${p.topCompanies.map(c => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
+          <div style="font-weight:600;margin-bottom:4px;">
+            Visitors: ${p.count}
+            <span style="color:${isPrivate ? "#f59e0b" : "#059669"}; margin-left:8px; font-size:10px; padding:2px 4px; background:${isPrivate ? "rgba(245, 158, 11, 0.1)" : "rgba(5, 150, 105, 0.1)"}; border-radius:2px;">
+              ${ipTypeLabel}
+            </span>
+          </div>
+          ${p.topCountries?.length ? `<div><span style="color:#6b7280">Countries:</span> ${p.topCountries.map((c) => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
+          ${p.topCities?.length ? `<div><span style="color:#6b7280">Cities:</span> ${p.topCities.map((c) => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
+          ${p.topCompanies?.length ? `<div><span style="color:#6b7280">Companies:</span> ${p.topCompanies.map((c) => `${c.value} (${c.count})`).join(", ")}</div>` : ""}
           <div style="color:#9ca3af;margin-top:4px;">Lat ${p.lat.toFixed(2)} · Lon ${p.lon.toFixed(2)}</div>
         </div>
       `;
 
       el.onmouseenter = () => {
-        el.style.background = "rgba(0,0,0,0.9)";
+        el.style.background = isPrivate ? "rgba(245, 158, 11, 0.9)" : "rgba(0,0,0,0.9)";
         popupRef.current?.setLngLat([p.lon, p.lat]).setHTML(html).addTo(map);
       };
       el.onmouseleave = () => {
-        el.style.background = "rgba(15,23,42,0.8)";
+        el.style.background = bgColor;
         popupRef.current?.remove();
       };
 
@@ -405,6 +484,16 @@ function WorldMap({ points }: { points: GeoPoint[] }) {
       <div ref={containerRef} className="h-[400px] w-full rounded border overflow-hidden" />
       <div className="absolute bottom-2 left-2 bg-white/80 backdrop-blur px-2 py-1 rounded text-[11px] shadow">
         Hover markers for details • Drag • Scroll to zoom
+        <div className="mt-1 flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 bg-slate-800 border border-white rounded-full"></div>
+            <span>Public</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 bg-amber-500 border-2 border-amber-500 rounded-full" style={{ borderStyle: "dashed" }}></div>
+            <span>Private</span>
+          </div>
+        </div>
       </div>
     </div>
   );

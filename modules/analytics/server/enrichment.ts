@@ -9,6 +9,7 @@ export type Enriched = {
   org?: string;
   asn?: string;
   company?: string;
+  isPrivate?: boolean;
 };
 
 const cache = new Map<string, { data: Enriched; exp: number }>();
@@ -29,12 +30,76 @@ function normalizeIp(ip: string) {
   return v;
 }
 
+function isPrivateIp(ip: string): boolean {
+  // Check IPv4 private ranges
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    const parts = ip.split('.').map(Number);
+    const [a, b, c, d] = parts;
+    
+    // Check if all parts are valid (0-255)
+    if (parts.some(part => part < 0 || part > 255)) return false;
+    
+    return (
+      a === 10 || // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) || // 192.168.0.0/16
+      a === 127 || // 127.0.0.0/8 (localhost)
+      (a === 169 && b === 254) // 169.254.0.0/16 (link-local)
+    );
+  }
+  
+  // Check IPv6 private ranges (simplified)
+  if (ip.includes(':')) {
+    const lower = ip.toLowerCase();
+    return (
+      lower.startsWith('::1') || // localhost
+      lower.startsWith('fe80:') || // link-local
+      lower.startsWith('fc00:') || // unique local
+      lower.startsWith('fd00:') || // unique local
+      lower.startsWith('::ffff:') // IPv4-mapped
+    );
+  }
+  
+  return false;
+}
+
+async function getServerGeolocation(): Promise<{ country?: string; region?: string; city?: string; lat?: number; lon?: number }> {
+  // Try to get server's public IP and location
+  try {
+    // Get server's public IP
+    const ipResponse = await fetchJson('https://api.ipify.org?format=json');
+    if (ipResponse?.ip) {
+      // Get location for server's public IP
+      const locationResponse = await fetchJson(`https://ipwho.is/${encodeURIComponent(ipResponse.ip)}`);
+      if (locationResponse?.success) {
+        return {
+          country: locationResponse.country_code || undefined,
+          region: locationResponse.region || locationResponse.state || undefined,
+          city: locationResponse.city || undefined,
+          lat: typeof locationResponse.latitude === "number" ? locationResponse.latitude : undefined,
+          lon: typeof locationResponse.longitude === "number" ? locationResponse.longitude : undefined,
+        };
+      }
+    }
+  } catch {}
+  
+  // Fallback to default location (you can customize this)
+  return {
+    country: "US",
+    region: "Unknown",
+    city: "Private Network",
+    lat: undefined,
+    lon: undefined,
+  };
+}
+
 function getCached(ip: string) {
   const hit = cache.get(ip);
   if (hit && hit.exp > Date.now()) return hit.data;
   if (hit) cache.delete(ip);
   return null;
 }
+
 function setCached(ip: string, data: Enriched) {
   cache.set(ip, { data, exp: Date.now() + TTL_MS });
 }
@@ -59,6 +124,20 @@ export async function enrichIp(ip: string) {
   const cached = getCached(norm);
   if (cached) return cached;
 
+  // Handle private IPs
+  if (isPrivateIp(norm)) {
+    const serverLocation = await getServerGeolocation();
+    const data: Enriched = {
+      ...serverLocation,
+      org: "Private Network",
+      asn: undefined,
+      company: undefined, // Explicitly not a company
+      isPrivate: true,
+    };
+    setCached(norm, data);
+    return data;
+  }
+
   // Provider 1: ipwho.is
   try {
     const j: any = await fetchJson(`https://ipwho.is/${encodeURIComponent(norm)}`);
@@ -72,6 +151,7 @@ export async function enrichIp(ip: string) {
         org: j.connection?.org || undefined,
         asn: j.connection?.asn ? "AS" + j.connection.asn : undefined,
         company: j.connection?.org || undefined,
+        isPrivate: false,
       };
       setCached(norm, data);
       return data;
@@ -91,6 +171,7 @@ export async function enrichIp(ip: string) {
         org: j.org || j.company || undefined,
         asn: j.asn || undefined,
         company: j.company || j.org || undefined,
+        isPrivate: false,
       };
       setCached(norm, data);
       return data;

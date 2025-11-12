@@ -8,6 +8,8 @@ alter table public.analytics_events
   add column if not exists ip_org text,
   add column if not exists ip_asn text,
   add column if not exists ip_company text,
+  add column if not exists ip_is_private boolean default false,
   add column if not exists skipped_admin boolean default false;
 
 create index if not exists analytics_events_ip_hash_idx on public.analytics_events (ip_hash);
+create index if not exists analytics_events_ip_is_private_idx on public.analytics_events (ip_is_private);

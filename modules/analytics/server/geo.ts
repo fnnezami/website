@@ -13,12 +13,14 @@ type Row = {
   ip_org: string | null;
   ip_lat: number | null;
   ip_lon: number | null;
+  ip_is_private: boolean | null; // Add this line
 };
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const { sinceSQL } = parseRange(url.searchParams.get("range"));
+    const includePrivate = url.searchParams.get("includePrivate") !== "false"; // Add this line
     const supabase = supabaseAdmin();
 
     const now = new Date();
@@ -32,18 +34,43 @@ export async function GET(req: Request) {
         : new Date(now.getTime() - 7 * 24 * 3600e3);
     const sinceISO = since.toISOString();
 
-    const sel = await supabase
+    // Add ip_is_private to the select and optionally filter
+    let query = supabase
       .from("analytics_events")
-      .select("ip_hash, ip_country, ip_city, ip_region, ip_company, ip_org, ip_lat, ip_lon")
+      .select("ip_hash, ip_country, ip_city, ip_region, ip_company, ip_org, ip_lat, ip_lon, ip_is_private")
       .gte("ts", sinceISO)
-      .not("ip_hash", "is", null)
-      .range(0, 19999);
+      .not("ip_hash", "is", null);
+
+    // Filter private IPs if not including them
+    if (!includePrivate) {
+      query = query.or("ip_is_private.is.null,ip_is_private.eq.false");
+    }
+
+    const sel = await query.range(0, 19999);
     if (sel.error) throw sel.error;
 
     // Deduplicate unique visitors by ip_hash (take first occurrence with geo)
     const unique = new Map<string, Row>();
     for (const r of (sel.data || []) as Row[]) {
-      if (!unique.has(r.ip_hash)) unique.set(r.ip_hash, r);
+      const existing = unique.get(r.ip_hash);
+      if (!existing) {
+        unique.set(r.ip_hash, r);
+      } else {
+        // Prefer records with geo data (lat/lon)
+        if (typeof r.ip_lat === "number" && typeof r.ip_lon === "number" &&
+            (typeof existing.ip_lat !== "number" || typeof existing.ip_lon !== "number")) {
+          unique.set(r.ip_hash, r);
+        }
+        // If both have geo data, prefer the one with more complete data
+        else if (typeof r.ip_lat === "number" && typeof r.ip_lon === "number" &&
+                 typeof existing.ip_lat === "number" && typeof existing.ip_lon === "number") {
+          const rComplete = !!(r.ip_country && r.ip_city);
+          const existingComplete = !!(existing.ip_country && existing.ip_city);
+          if (rComplete && !existingComplete) {
+            unique.set(r.ip_hash, r);
+          }
+        }
+      }
     }
 
     // Cluster by rounded lat/lon (0.75 degree ~ 80km)
@@ -53,6 +80,7 @@ export async function GET(req: Request) {
         lat: number;
         lon: number;
         count: number;
+        is_private: boolean; // Add this line
         countries: Record<string, number>;
         cities: Record<string, number>;
         companies: Record<string, number>;
@@ -68,11 +96,15 @@ export async function GET(req: Request) {
         lat: rl,
         lon: ro,
         count: 0,
+        is_private: false, // Start with false
         countries: {},
         cities: {},
         companies: {},
       };
       c.count += 1;
+      // Set to true if ANY record in this cluster is private
+      if (r.ip_is_private) c.is_private = true;
+      
       if (r.ip_country) c.countries[r.ip_country] = (c.countries[r.ip_country] || 0) + 1;
       const cityRegion =
         r.ip_city || r.ip_region ? `${r.ip_city || ""}${r.ip_city && r.ip_region ? ", " : ""}${r.ip_region || ""}` : "";
@@ -93,6 +125,7 @@ export async function GET(req: Request) {
       lat: c.lat,
       lon: c.lon,
       count: c.count,
+      is_private: c.is_private, // Add this line
       topCountries: topN(c.countries),
       topCities: topN(c.cities),
       topCompanies: topN(c.companies),
