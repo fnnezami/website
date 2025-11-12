@@ -224,18 +224,32 @@ export function extractCoverLetter(body: any) {
 function findLocalChrome() {
   const candidates = [
     process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROME_EXECUTABLE_PATH, // Add this env var option
+    // Windows
     "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    // Linux
     "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
     "/opt/google/chrome/chrome",
+    "/snap/bin/chromium", // Snap package
+    // macOS
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   ].filter(Boolean);
+  
   for (const p of candidates) {
     try {
-      if (p && fs.existsSync(p)) return p;
-    } catch {}
+      if (p && fs.existsSync(p)) {
+        console.log(`Found Chrome at: ${p}`);
+        return p;
+      }
+    } catch (err: any) {
+      console.log(`Error checking ${p}:`, err?.message || String(err));
+    }
   }
+  console.log("No local Chrome installation found");
   return null;
 }
 
@@ -248,43 +262,76 @@ export async function getBrowser() {
   if (BROWSER && BROWSER.process && BROWSER.process() && !BROWSER.process().killed)
     return BROWSER;
 
+  console.log("Attempting to launch browser...");
+  
   // Try serverless chromium
   try {
+    console.log("Trying @sparticuz/chromium...");
     const execMaybe = chromium.executablePath;
     const execPath = typeof execMaybe === "function" ? await execMaybe() : execMaybe;
+    console.log("Chromium executable path:", execPath);
+    
     if (typeof execPath === "string" && fs.existsSync(execPath)) {
+      console.log("Found chromium executable, launching...");
       BROWSER = await launchWith({
         args: chromium.args,
         defaultViewport: chromium.defaultViewport,
         executablePath: execPath,
         headless: chromium.headless,
       });
+      console.log("Successfully launched with @sparticuz/chromium");
       return BROWSER;
+    } else {
+      console.log("Chromium executable not found or doesn't exist");
     }
-  } catch {}
+  } catch (err: any) {
+    console.log("@sparticuz/chromium failed:", err?.message || String(err));
+  }
 
   // System Chrome
+  console.log("Trying system Chrome...");
   const localChrome = findLocalChrome();
+  console.log("Local Chrome path:", localChrome);
+  
   if (localChrome) {
-    BROWSER = await launchWith({
-      executablePath: localChrome,
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    });
-    return BROWSER;
+    try {
+      BROWSER = await launchWith({
+        executablePath: localChrome,
+        headless: true,
+        args: [
+          "--no-sandbox", 
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage", // Add this for production environments
+          "--disable-gpu",
+          "--single-process", // Add this for some cloud environments
+        ],
+      });
+      console.log("Successfully launched with system Chrome");
+      return BROWSER;
+    } catch (err: any) {
+      console.log("System Chrome failed:", err?.message || String(err));
+    }
   }
 
   // Bundled puppeteer
   try {
+    console.log("Trying bundled puppeteer...");
     const puppeteerFull = await import("puppeteer").then((m: any) => m.default || m);
     BROWSER = await puppeteerFull.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [
+        "--no-sandbox", 
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+      ],
     });
+    console.log("Successfully launched with bundled puppeteer");
     return BROWSER;
-  } catch {
+  } catch (err: any) {
+    console.log("Bundled puppeteer failed:", err?.message || String(err));
     throw new Error(
-      "No Chromium available. Install Chrome or keep @sparticuz/chromium / puppeteer installed."
+      `No Chromium available. Install Chrome or keep @sparticuz/chromium / puppeteer installed. Last error: ${err?.message || String(err)}`
     );
   }
 }
@@ -303,7 +350,7 @@ export async function pdfFromHtml(html: string) {
     });
     try { await page.close({ runBeforeUnload: true }); } catch {}
     return buf;
-  } catch (err) {
+  } catch (err: any) {
     try { if (page) await page.close({ runBeforeUnload: true }); } catch {}
     throw err;
   }
